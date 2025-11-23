@@ -73,22 +73,14 @@ function tryRoot(ns, host) {
         { file: "SQLInject.exe", fn: ns.sqlinject },
     ];
 
-    let openedPorts = 0;
     for (const opener of portOpeners) {
         if (ns.fileExists(opener.file, "home")) {
-            try {
-                // Some APIs are gated behind owning the program; only call when present.
-                if (typeof opener.fn === "function") {
-                    opener.fn(host);
-                    openedPorts += 1;
-                }
-            } catch {
-                // Ignore environments where the helper function is unavailable.
-            }
+            try { opener.fn(host); } catch { /* ignore missing API when file absent */ }
         }
     }
 
     const requiredPorts = ns.getServerNumPortsRequired(host);
+    const openedPorts = ns.getServerOpenPortCount(host);
     if (openedPorts >= requiredPorts && ns.getServerRequiredHackingLevel(host) <= ns.getHackingLevel()) {
         ns.nuke(host);
     }
