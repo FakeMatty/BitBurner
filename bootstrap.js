@@ -22,6 +22,7 @@ export async function main(ns) {
     const purchaseRam = 8;         // preferred RAM for purchased servers; will downscale if unaffordable
     const purchaseBuffer = 5_000;  // keep this much money before buying servers
     const rescanDelay = 10_000;    // 10s between management loops
+    const maxActionTime = 15_000;  // keep single actions under 15 seconds
 
     ns.disableLog("scan");
     ns.disableLog("sleep");
@@ -29,7 +30,7 @@ export async function main(ns) {
 
     while (true) {
         const rooted = rootAccessibleServers(ns);
-        const target = pickBestTarget(ns, rooted);
+        const target = pickBestTarget(ns, rooted, maxActionTime);
 
         if (!target) {
             ns.tprint("No valid targets yet. Waiting...");
@@ -114,14 +115,17 @@ function scanAll(ns) {
 }
 
 /**
- * Choose the best rooted target based on money and hacking level.
+ * Choose the best rooted target based on money, hacking level, and action speed.
  * @param {NS} ns
  * @param {string[]} rooted
+ * @param {number} maxActionTime
  */
-function pickBestTarget(ns, rooted) {
+function pickBestTarget(ns, rooted, maxActionTime) {
     const playerLevel = ns.getHackingLevel();
-    let best = null;
+    let best = null;       // best target that fits the action-time cap
     let bestScore = 0;
+    let fallback = null;   // best target even if it exceeds the cap
+    let fallbackScore = 0;
 
     for (const host of rooted) {
         if (ns.getServerRequiredHackingLevel(host) > playerLevel) continue;
@@ -129,13 +133,22 @@ function pickBestTarget(ns, rooted) {
         if (maxMoney <= 0) continue;
 
         const minSec = ns.getServerMinSecurityLevel(host);
-        const score = maxMoney / (minSec + 1);
-        if (score > bestScore) {
-            bestScore = score;
+        const weakenTime = ns.getWeakenTime(host);
+        const timeWeightedScore = (maxMoney / (minSec + 1)) / Math.max(1, weakenTime / 1000);
+
+        if (timeWeightedScore > fallbackScore) {
+            fallbackScore = timeWeightedScore;
+            fallback = host;
+        }
+
+        if (weakenTime > maxActionTime) continue; // too slow for early-game loops
+
+        if (timeWeightedScore > bestScore) {
+            bestScore = timeWeightedScore;
             best = host;
         }
     }
-    return best;
+    return best ?? fallback;
 }
 
 /**

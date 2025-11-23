@@ -5,7 +5,7 @@ This repository contains a small set of Bitburner scripts intended to accelerate
 ## Files
 - `hello.js` — Simple greeting used to verify you can pull scripts from GitHub.
 - `helloworld.js` — Minimal "Hello, world!" script for quick testing.
-- `worker.js` — Lightweight hack/grow/weaken loop that keeps a target server's money high and security low.
+- `worker.js` — Lightweight hack/grow/weaken loop that favors fast (<15s) actions and keeps a target server's money high and security low.
 - `bootstrap.js` — Manager script that roots servers, picks a target, deploys workers everywhere, and buys small servers when you can afford them.
 
 ## How to start
@@ -20,7 +20,7 @@ This repository contains a small set of Bitburner scripts intended to accelerate
 
 ## Tips for using the pack
 - Keep the scripts running while you explore or do crime jobs; they will keep your money flowing in the background.
-- If you unlock stronger port crackers or more RAM, bump the purchase RAM or the target selection to speed things up.
+- If you unlock stronger port crackers or more RAM, bump the purchase RAM or the target selection to speed things up. The target picker prioritizes low-security, fast-cycle servers so individual weaken/grow/hack calls stay under 15 seconds.
 - Replace `worker.js` with batcher-style scripts once you move into mid-game.
 
 ## Updating when GitHub reports a conflict
