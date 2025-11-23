@@ -1,16 +1,16 @@
 /**
- * Early-game bootstrapper to root servers, deploy workers, and buy starter servers.
+ * Early-game bootstrapper to root servers, deploy batching helpers, and buy starter servers.
  *
  * Usage: run bootstrap.js
  *
  * Behavior:
  * - Scans the network, attempts to gain root using any port crackers you own.
  * - Picks the best rooted target based on money and hack level constraints.
- * - Spreads worker.js to all rooted servers and runs it with maximum threads.
- * - Purchases a few small servers when you can easily afford them, reusing them as workers.
+ * - Copies worker/action scripts to rooted servers and runs worker.js on home as a batch coordinator.
+ * - Purchases a few small servers when you can easily afford them, reusing them as action runners.
  *
  * Assumptions:
- * - worker.js exists on your home computer.
+ * - worker.js and action.js exist on your home computer.
  * - You start with NUKE.exe; other port crackers are used automatically if present.
  * - Designed for a fresh Bitburner save; swap out once you move into mid-game batching.
  *
@@ -18,6 +18,7 @@
  */
 export async function main(ns) {
     const worker = "worker.js";
+    const actionScript = "action.js";
     const desiredPurchased = 5;    // buy up to 5 small servers early on
     const purchaseRam = 8;         // preferred RAM for purchased servers; will downscale if unaffordable
     const purchaseBuffer = 5_000;  // keep this much money before buying servers
@@ -35,8 +36,9 @@ export async function main(ns) {
         if (!target) {
             ns.tprint("No valid targets yet. Waiting...");
         } else {
-            deployToRooted(ns, rooted, worker, target);
-            buyStarterServers(ns, worker, target, desiredPurchased, purchaseRam, purchaseBuffer);
+            killWorkersEverywhere(ns, worker, rooted);
+            deployCoordinator(ns, rooted, worker, actionScript, target);
+            buyStarterServers(ns, worker, actionScript, target, desiredPurchased, purchaseRam, purchaseBuffer);
         }
 
         await ns.sleep(rescanDelay);
@@ -79,7 +81,6 @@ function tryRoot(ns, host) {
         if (!ns.fileExists(opener.file, "home")) continue;
 
         try {
-            // Netscript exposes these regardless of ownership; the call throws without the program.
             opener.fn(host);
             opened += 1;
         } catch {
@@ -152,30 +153,44 @@ function pickBestTarget(ns, rooted, maxActionTime) {
 }
 
 /**
- * Push worker.js to rooted hosts and start it with max threads.
+ * Stop any existing worker instances across rooted hosts and home so we restart with fresh code/targets.
+ * @param {NS} ns
+ * @param {string} worker
+ * @param {string[]} rooted
+ */
+function killWorkersEverywhere(ns, worker, rooted) {
+    const hosts = new Set([...rooted, "home", ...ns.getPurchasedServers()]);
+    for (const host of hosts) {
+        if (!ns.serverExists(host)) continue;
+        ns.scriptKill(worker, host);
+    }
+}
+
+/**
+ * Push worker/action helpers to rooted hosts and start the coordinator on home.
  * @param {NS} ns
  * @param {string[]} rooted
  * @param {string} worker
+ * @param {string} actionScript
  * @param {string} target
  */
-function deployToRooted(ns, rooted, worker, target) {
-    for (const host of rooted) {
-        const ram = ns.getServerMaxRam(host) - ns.getServerUsedRam(host);
-        const threads = Math.floor(ram / ns.getScriptRam(worker));
-        if (threads <= 0) continue;
-
-        ns.scp(worker, host);
-        ns.scriptKill(worker, host);
-        ns.exec(worker, host, threads, target);
+function deployCoordinator(ns, rooted, worker, actionScript, target) {
+    const helpers = [worker, actionScript];
+    for (const host of [...rooted, ...ns.getPurchasedServers()]) {
+        ns.scp(helpers, host);
     }
 
-    // Always ensure home is running too, but leave 20% RAM buffer for manual tasks.
+    // Always ensure home has the helpers too.
+    ns.scp(helpers, "home");
+
     const homeRam = ns.getServerMaxRam("home");
     const reserved = homeRam * 0.2;
-    const homeThreads = Math.floor((homeRam - ns.getServerUsedRam("home") - reserved) / ns.getScriptRam(worker));
-    if (homeThreads > 0) {
+    const availableThreads = Math.floor((homeRam - ns.getServerUsedRam("home") - reserved) / ns.getScriptRam(worker));
+    if (availableThreads > 0) {
         ns.scriptKill(worker, "home");
-        ns.exec(worker, "home", homeThreads, target);
+        ns.exec(worker, "home", availableThreads, target, actionScript);
+    } else {
+        ns.tprint("Not enough home RAM to start worker.js. Free some memory and rerun bootstrap.");
     }
 }
 
@@ -183,12 +198,13 @@ function deployToRooted(ns, rooted, worker, target) {
  * Buy a handful of starter servers when money is plentiful.
  * @param {NS} ns
  * @param {string} worker
+ * @param {string} actionScript
  * @param {string} target
  * @param {number} desired
  * @param {number} ram
  * @param {number} buffer
  */
-function buyStarterServers(ns, worker, target, desired, targetRam, buffer) {
+function buyStarterServers(ns, worker, actionScript, target, desired, targetRam, buffer) {
     const owned = ns.getPurchasedServers();
     if (owned.length >= desired) return;
 
@@ -203,12 +219,8 @@ function buyStarterServers(ns, worker, target, desired, targetRam, buffer) {
     const host = ns.purchaseServer(name, ram);
     if (!host) return;
 
-    ns.scp(worker, host);
-    const threads = Math.floor((ram - ns.getServerUsedRam(host)) / ns.getScriptRam(worker));
-    if (threads > 0) {
-        ns.exec(worker, host, threads, target);
-    }
-    ns.tprint(`Purchased ${host} (${ram}GB) and started hacking ${target}`);
+    ns.scp([worker, actionScript], host);
+    ns.tprint(`Purchased ${host} (${ram}GB); the home coordinator will use it for batching ${target}.`);
 }
 
 /**
