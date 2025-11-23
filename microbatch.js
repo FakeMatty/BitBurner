@@ -1,8 +1,9 @@
 /**
  * Micro-batcher that repeatedly fires tight hack -> grow -> weaken cycles with
- * single-thread hacks, sized grows to restore ~99% money, and enough weaken
- * threads to return to minimum security. Capped at 10 threads per exec and will
- * wait for network RAM before launching a cycle.
+ * single-thread hacks, capped 3-thread grows to restore ~99% money, and enough
+ * weaken threads to return to minimum security. Capped at 10 threads per exec
+ * and will wait for network RAM before launching a cycle. Will stagger
+ * multiple batches across all rooted hosts to use available RAM.
  *
  * Usage: run microbatch.js [target] [maxThreadsPerExec=10] [homeReserveRam=0] [gapMs=100]
  *
@@ -29,13 +30,19 @@ export async function main(ns) {
         const hosts = getRootedHosts(ns).filter(h => ns.getServerMaxRam(h) > 0);
         const totalThreads = availableThreads(ns, hosts, actionRam, homeReserve);
 
+        const server = ns.getServer(target);
         const hackThreads = 1;
         const hackPct = Math.max(0, ns.hackAnalyze(target));
-        const growthFactor = Math.max(1.01, 0.99 / Math.max(0.01, 1 - hackPct));
-        const growThreads = Math.max(1, Math.ceil(ns.growthAnalyze(target, growthFactor)));
+        const moneyAvail = Math.max(0, ns.getServerMoneyAvailable(target));
+        const maxMoney = Math.max(1, ns.getServerMaxMoney(target));
+        const moneyAfterHack = Math.max(0, moneyAvail - moneyAvail * hackPct * hackThreads);
+        const desiredMoney = maxMoney * 0.99;
+        const growthFactor = Math.max(1.01, desiredMoney / Math.max(1, moneyAfterHack));
+        const growThreads = clamp(Math.max(1, Math.ceil(ns.growthAnalyze(target, growthFactor))), 1, 3);
         const weakenEffect = ns.weakenAnalyze(1) || 0.05;
         const securityDelta = ns.hackAnalyzeSecurity(hackThreads, target) + ns.growthAnalyzeSecurity(growThreads, target);
-        const weakenThreads = Math.max(1, Math.ceil(securityDelta / weakenEffect));
+        const securityHeadroom = Math.max(0, (server.hackDifficulty || ns.getServerSecurityLevel(target)) - ns.getServerMinSecurityLevel(target));
+        const weakenThreads = Math.max(1, Math.ceil((securityDelta + securityHeadroom) / weakenEffect));
 
         const threadsNeeded = hackThreads + growThreads + weakenThreads;
         if (totalThreads < threadsNeeded) {
@@ -48,23 +55,32 @@ export async function main(ns) {
         const weakenTime = ns.getWeakenTime(target);
         const growTime = ns.getGrowTime(target);
 
-        const now = Date.now();
-        const steps = [
-            { action: "hack", delay: 0, duration: hackTime, threads: hackThreads },
-            { action: "grow", delay: gapMs, duration: growTime, threads: growThreads },
-            { action: "weaken", delay: gapMs * 2, duration: weakenTime, threads: weakenThreads },
-        ];
+        const threadsPerBatch = hackThreads + growThreads + weakenThreads;
+        const batches = clamp(Math.floor(totalThreads / threadsPerBatch), 1, 40);
+        const batchSpacing = Math.max(50, Math.floor(gapMs * 0.75));
 
+        const now = Date.now();
         let ok = true;
-        for (const step of steps) {
-            const finish = now + step.delay + step.duration;
-            ns.print(`Scheduling ${step.action} x${step.threads} start=${new Date(now + step.delay).toISOString()} finish=${new Date(finish).toISOString()} GMT`);
-            const placed = scheduleAction(ns, hosts, target, step.action, actionScript, step.delay, step.threads, actionRam, homeReserve, maxThreadsPerExec);
-            if (!placed) {
-                ns.print(`Insufficient RAM to place ${step.action}. Waiting for space...`);
-                ok = false;
-                break;
+        for (let i = 0; i < batches; i++) {
+            const base = i * batchSpacing;
+            const steps = [
+                { action: "hack", delay: base, duration: hackTime, threads: hackThreads },
+                { action: "grow", delay: base + gapMs, duration: growTime, threads: growThreads },
+                { action: "weaken", delay: base + gapMs * 2, duration: weakenTime, threads: weakenThreads },
+            ];
+
+            for (const step of steps) {
+                const finish = now + step.delay + step.duration;
+                ns.print(`Batch ${i + 1}/${batches}: ${step.action} x${step.threads} start=${new Date(now + step.delay).toISOString()} finish=${new Date(finish).toISOString()} GMT`);
+                const placed = scheduleAction(ns, hosts, target, step.action, actionScript, step.delay, step.threads, actionRam, homeReserve, maxThreadsPerExec);
+                if (!placed) {
+                    ns.print(`Insufficient RAM to place ${step.action} for batch ${i + 1}. Waiting for space...`);
+                    ok = false;
+                    break;
+                }
             }
+
+            if (!ok) break;
         }
 
         if (!ok) {
@@ -72,7 +88,7 @@ export async function main(ns) {
             continue;
         }
 
-        await ns.sleep(gapMs);
+        await ns.sleep(Math.max(gapMs, batchSpacing));
     }
 }
 
