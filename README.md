@@ -8,7 +8,7 @@ This repository contains a small set of Bitburner scripts intended to accelerate
 - `action.js` — Helper used by the batch coordinator to run a single hack/grow/weaken action (threads are provided by `ns.exec`) and log the GMT completion time for each action instance.
 - `worker.js` — Batching coordinator that preps a target then fires hack/grow/weaken batches with ~1s spacing, scaling down to fit early-game RAM while logging when each step should finish in GMT.
 - `bootstrap.js` — Manager script that roots servers, picks a target, copies helpers everywhere, starts the coordinator on home, and buys small servers when you can afford them (never below 4GB RAM).
-- `monitor.js` — Live dashboard listing rooted servers with money %, security, hack/grow/weaken times, threads to prep to max, and a rough ETA to finish prep, refreshed every few seconds.
+- `monitor.js` — Live dashboard listing rooted servers with money %, security, hack/grow/weaken times, threads to prep to max, and a rough ETA to finish prep, refreshed every few seconds (defaults to the 20 lowest-max-money servers, configurable via arg).
 
 ## How to start
 1. Pull the files into Bitburner (e.g., using `wget` or your GitHub fetcher).
@@ -25,7 +25,7 @@ This repository contains a small set of Bitburner scripts intended to accelerate
 - The batch coordinator prepares the target to high money/low security and then launches hack → weaken → grow → weaken batches that finish about one second apart. If RAM is tight, it scales thread counts down instead of stalling, and it prints expected completion times in GMT so you can see when money will land.
 - Each time you run `bootstrap.js` it kills existing `worker.js` instances across your network, copies the latest helpers, and restarts the coordinator so updates propagate everywhere automatically.
 - Replace `worker.js` with a more advanced batcher once you move into mid-game.
-- Keep `monitor.js` running in a tail window (e.g., `run monitor.js 2000`) to watch money %, prep threads, and rough ETAs for each rooted host while batches execute.
+- Keep `monitor.js` running in a tail window (e.g., `run monitor.js 2000 20`) to watch money %, prep threads, and rough ETAs for each rooted host; the second arg controls how many of the lowest-max-money servers to display.
 
 ## Updating when GitHub reports a conflict
 If you see a GitHub conflict banner while trying to pull new versions of these files, you can safely favor the latest upstream changes because these scripts are meant to be overwritten as a set.

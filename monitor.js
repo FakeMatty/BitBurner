@@ -1,8 +1,9 @@
 /**
  * Live server monitor showing money, security, timings, and prep needs.
  *
- * Usage: run monitor.js [refreshMs]
+ * Usage: run monitor.js [refreshMs] [limit]
  * - refreshMs: optional update interval in milliseconds (default: 2000)
+ * - limit: optional count of servers to show (default: 20, smallest max-money servers)
  *
  * Shows rooted and purchased servers with:
  * - current/max money and percent
@@ -15,6 +16,7 @@
  */
 export async function main(ns) {
     const refresh = Number(ns.args[0] ?? 2000);
+    const limit = Number(ns.args[1] ?? 20);
     ns.disableLog("sleep");
     ns.clearLog();
     ns.tail();
@@ -24,7 +26,8 @@ export async function main(ns) {
         const rows = servers
             .filter((host) => host !== "home")
             .map((host) => describe(ns, host))
-            .sort((a, b) => b.maxMoney - a.maxMoney);
+            .sort((a, b) => a.maxMoney - b.maxMoney)
+            .slice(0, Math.max(0, limit));
 
         ns.clearLog();
         ns.print(header());
