@@ -5,7 +5,7 @@ This repository contains a small set of Bitburner scripts intended to accelerate
 ## Files
 - `hello.js` — Simple greeting used to verify you can pull scripts from GitHub.
 - `helloworld.js` — Minimal "Hello, world!" script for quick testing.
-- `action.js` — Helper used by the batch coordinator to run a single hack/grow/weaken action (threads are provided by `ns.exec`) and log the GMT completion time for each action instance.
+- `action.js` — Helper used by the batch coordinator to run a single hack/grow/weaken action (threads are provided by `ns.exec`) and log the GMT completion time for each action instance; defaults to `n00dles` if you omit the target.
 - `worker.js` — Batching coordinator that preps a target then fires hack/grow/weaken batches with ~1s spacing, scaling down to fit early-game RAM while logging when each step should finish in GMT.
 - `bootstrap.js` — Manager script that roots servers, picks a target, copies helpers everywhere, starts the coordinator on home, and buys small servers when you can afford them (never below 4GB RAM).
 - `monitor.js` — Live dashboard listing rooted servers with money %, security, hack/grow/weaken times, threads to prep to max, and a rough ETA to finish prep, refreshed every few seconds (defaults to the 20 lowest-max-money servers, configurable via arg).

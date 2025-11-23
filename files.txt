@@ -3,5 +3,4 @@ bootstrap.js
 hello.js
 helloworld.js
 worker.js
-README.md
 monitor.js

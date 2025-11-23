@@ -10,9 +10,14 @@
  * @param {NS} ns
  */
 export async function main(ns) {
-    const [target, action, delay = 0] = ns.args;
-    if (!target || !action) {
-        ns.tprint("Usage: run action.js <target> <hack|grow|weaken> [delayMs]");
+    const [firstArg, maybeAction, delay = 0] = ns.args;
+    const defaultTarget = "n00dles";
+    const action = normalizeAction(firstArg) || normalizeAction(maybeAction);
+    const target = normalizeAction(firstArg) ? defaultTarget : (firstArg || defaultTarget);
+
+    if (!action) {
+        ns.tprint("Usage: run action.js <target> <hack|grow|weaken> [delayMs]\n" +
+            "If no target is provided, defaults to n00dles (smallest server).");
         return;
     }
 
@@ -51,4 +56,10 @@ function getDuration(ns, target, action) {
         default:
             return ns.getWeakenTime(target);
     }
+}
+
+function normalizeAction(candidate) {
+    if (typeof candidate !== "string") return "";
+    const lowered = candidate.toLowerCase();
+    return ["hack", "grow", "weaken"].includes(lowered) ? lowered : "";
 }
