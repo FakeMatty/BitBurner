@@ -13,7 +13,7 @@
  * - worker.js exists on your home computer.
  * - You start with NUKE.exe; other port crackers are used automatically if present.
  * - Designed for a fresh Bitburner save; swap out once you move into mid-game batching.
- *
+ * Test
  * @param {NS} ns
  */
 export async function main(ns) {
