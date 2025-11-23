@@ -5,7 +5,6 @@
  *
  * Behavior:
  * - Scans the network, attempts to gain root using any port crackers you own.
- * - Picks the best rooted target based on money and hack level constraints.
  * - Copies worker/action scripts to rooted servers and runs worker.js on home as a batch coordinator.
  * - Purchases a few small servers when you can easily afford them, reusing them as action runners.
  *
@@ -24,7 +23,7 @@ export async function main(ns) {
     const minPurchaseRam = 4;      // never buy smaller than this to avoid useless nodes
     const purchaseBuffer = 5_000;  // keep this much money before buying servers
     const rescanDelay = 10_000;    // 10s between management loops
-    const maxActionTime = 15_000;  // keep single actions under 15 seconds
+    const target = "n00dles";     // focus exclusively on n00dles for early-game batching
 
     ns.disableLog("scan");
     ns.disableLog("sleep");
@@ -32,10 +31,8 @@ export async function main(ns) {
 
     while (true) {
         const rooted = rootAccessibleServers(ns);
-        const target = pickBestTarget(ns, rooted, maxActionTime);
-
-        if (!target) {
-            ns.tprint("No valid targets yet. Waiting...");
+        if (!ns.hasRootAccess(target)) {
+            ns.tprint(`Waiting to root ${target} before starting batches...`);
         } else {
             killWorkersEverywhere(ns, worker, rooted);
             deployCoordinator(ns, rooted, worker, actionScript, target);
@@ -114,43 +111,6 @@ function scanAll(ns) {
         }
     }
     return Array.from(seen);
-}
-
-/**
- * Choose the best rooted target based on money, hacking level, and action speed.
- * @param {NS} ns
- * @param {string[]} rooted
- * @param {number} maxActionTime
- */
-function pickBestTarget(ns, rooted, maxActionTime) {
-    const playerLevel = ns.getHackingLevel();
-    let best = null;       // best target that fits the action-time cap
-    let bestScore = 0;
-    let fallback = null;   // best target even if it exceeds the cap
-    let fallbackScore = 0;
-
-    for (const host of rooted) {
-        if (ns.getServerRequiredHackingLevel(host) > playerLevel) continue;
-        const maxMoney = ns.getServerMaxMoney(host);
-        if (maxMoney <= 0) continue;
-
-        const minSec = ns.getServerMinSecurityLevel(host);
-        const weakenTime = ns.getWeakenTime(host);
-        const timeWeightedScore = (maxMoney / (minSec + 1)) / Math.max(1, weakenTime / 1000);
-
-        if (timeWeightedScore > fallbackScore) {
-            fallbackScore = timeWeightedScore;
-            fallback = host;
-        }
-
-        if (weakenTime > maxActionTime) continue; // too slow for early-game loops
-
-        if (timeWeightedScore > bestScore) {
-            bestScore = timeWeightedScore;
-            best = host;
-        }
-    }
-    return best ?? fallback;
 }
 
 /**

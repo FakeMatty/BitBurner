@@ -1,13 +1,13 @@
 /**
  * Early batching coordinator that prepares a target then fires small hack-grow-weaken batches.
  *
- * Usage: run worker.js <target> [actionScript]
- * - target: server name to hack
+ * Usage: run worker.js [target] [actionScript]
+ * - target: server name to hack (defaults to n00dles)
  * - actionScript: helper script used to run individual actions (default: action.js)
  *
  * Behavior:
  * - Prepares the target to near-max money and near-min security using available servers.
- * - Calculates a small batch (hack/grow/weaken/weaken) and schedules completions ~1s apart.
+ * - Calculates a small batch (hack/grow/weaken/weaken) and schedules completions a few hundred ms apart.
  * - Distributes threads across rooted and purchased servers while reserving some home RAM.
  *
  * This is intentionally lightweight for early-game RAM. If there isn't enough memory to run the
@@ -16,27 +16,18 @@
  * @param {NS} ns
  */
 export async function main(ns) {
-    const preferredTarget = ns.args[0];
+    const preferredTarget = ns.args[0] || "n00dles";
     const actionScript = ns.args[1] || "action.js";
-    if (!preferredTarget) {
-        ns.tprint("ERROR: worker.js requires a target server name as the first argument.");
-        return;
-    }
 
-    const maxActionTime = 15_000; // keep individual actions under 15 seconds
     const prepareSecBuffer = 0.5;
     const prepareMoneyPct = 0.95;
-    const batchGap = 1_000;       // ms between hack/weaken/grow/weaken finishes
+    const batchGap = calcBatchGap(ns, preferredTarget); // ms between hack/weaken/grow/weaken finishes
     const delayBuffer = 200;      // safety buffer before first action starts
     const homeReservePct = 0.2;   // leave some home RAM free for manual tasks
 
-    let target = pickFastTarget(ns, preferredTarget, maxActionTime);
-    if (target !== preferredTarget) {
-        ns.tprint(`Switching to faster early-game target: ${target}`);
-    }
+    const target = preferredTarget;
 
     while (true) {
-        target = pickFastTarget(ns, target, maxActionTime);
         const hosts = hostState(ns, homeReservePct, actionScript);
         if (hosts.totalThreads === 0) {
             ns.print("No available RAM to schedule actions. Waiting...");
@@ -52,62 +43,21 @@ export async function main(ns) {
             continue;
         }
 
-        const schedule = buildSchedule(ns, target, plan, batchGap, delayBuffer);
+        const baseSchedule = buildSchedule(ns, target, plan, batchGap, delayBuffer);
         const updatedHosts = hostState(ns, homeReservePct, actionScript); // refresh free RAM
-        const success = dispatchBatch(ns, target, actionScript, plan, schedule, updatedHosts);
+        const success = dispatchBatch(ns, target, actionScript, plan, updatedHosts, batchGap);
         if (!success) {
             ns.print("Batch dispatch failed due to RAM limits. Retrying...");
             await ns.sleep(2000);
             continue;
         }
 
-        logSchedule(ns, target, schedule);
-        const sleepTime = Math.max(0, schedule.finishWeaken2 - Date.now() + delayBuffer);
+        logSchedule(ns, target, plan, baseSchedule, batchGap);
+        const batchSpacing = calcBatchSpacing(batchGap);
+        const lastFinish = baseSchedule.finishWeaken2 + batchSpacing * (plan.batchCount - 1);
+        const sleepTime = Math.max(0, lastFinish - Date.now() + delayBuffer);
         await ns.sleep(sleepTime);
     }
-}
-
-/**
- * Choose a target that keeps action times below a threshold, falling back to quick early servers.
- * @param {NS} ns
- * @param {string} preferred
- * @param {number} maxActionTime
- * @param {string=} current
- */
-function pickFastTarget(ns, preferred, maxActionTime, current) {
-    if (isFastEnough(ns, preferred, maxActionTime)) return preferred;
-    if (current && isFastEnough(ns, current, maxActionTime)) return current;
-
-    const fallbacks = [
-        "n00dles",
-        "foodnstuff",
-        "sigma-cosmetics",
-        "joesguns",
-        "hong-fang-tea",
-        "harakiri-sushi",
-    ];
-
-    for (const host of fallbacks) {
-        if (!ns.serverExists(host)) continue;
-        if (!ns.hasRootAccess(host)) continue;
-        if (!isFastEnough(ns, host, maxActionTime)) continue;
-        return host;
-    }
-
-    return preferred;
-}
-
-/**
- * Determine whether hack/grow/weaken stay under the allowed time for a host.
- * @param {NS} ns
- * @param {string} host
- * @param {number} maxActionTime
- */
-function isFastEnough(ns, host, maxActionTime) {
-    const weakenTime = ns.getWeakenTime(host);
-    const growTime = ns.getGrowTime(host);
-    const hackTime = ns.getHackTime(host);
-    return weakenTime <= maxActionTime && growTime <= maxActionTime && hackTime <= maxActionTime;
 }
 
 /**
@@ -210,11 +160,8 @@ function buildBatchPlan(ns, target, actionScript, availableThreads) {
     const weaken2Threads = Math.max(1, Math.ceil(growSec / weakenPerThread));
 
     const required = desiredHackThreads + growThreads + weaken1Threads + weaken2Threads;
-    if (required <= availableThreads) {
-        return { hackThreads: desiredHackThreads, growThreads, weaken1Threads, weaken2Threads };
-    }
 
-    const scale = availableThreads / required;
+    const scale = Math.min(1, availableThreads / required);
     if (scale <= 0) return null;
 
     const plan = {
@@ -224,20 +171,23 @@ function buildBatchPlan(ns, target, actionScript, availableThreads) {
         weaken2Threads: Math.max(1, Math.floor(weaken2Threads * scale)),
     };
 
-    const total = plan.hackThreads + plan.growThreads + plan.weaken1Threads + plan.weaken2Threads;
-    return total <= availableThreads ? plan : null;
+    const threadsPerBatch = plan.hackThreads + plan.growThreads + plan.weaken1Threads + plan.weaken2Threads;
+    if (threadsPerBatch <= 0) return null;
+
+    const batchCount = Math.min(5, Math.max(1, Math.floor(availableThreads / threadsPerBatch)));
+    return { ...plan, threadsPerBatch, batchCount };
 }
 
 /**
- * Compute start delays so actions finish about one second apart.
+ * Compute start delays so actions finish tightly grouped while keeping ordering.
  */
-function buildSchedule(ns, target, plan, gap, buffer) {
+function buildSchedule(ns, target, plan, gap, buffer, offset = 0) {
     const now = Date.now();
     const weakenTime = ns.getWeakenTime(target);
     const growTime = ns.getGrowTime(target);
     const hackTime = ns.getHackTime(target);
 
-    const finishWeaken2 = now + buffer + weakenTime + gap * 3;
+    const finishWeaken2 = now + buffer + weakenTime + gap * 3 + offset;
     const finishGrow = finishWeaken2 - gap;
     const finishWeaken1 = finishGrow - gap;
     const finishHack = finishWeaken1 - gap;
@@ -253,26 +203,31 @@ function buildSchedule(ns, target, plan, gap, buffer) {
 /**
  * Dispatch a full batch across available hosts.
  */
-function dispatchBatch(ns, target, actionScript, plan, schedule, hosts) {
+function dispatchBatch(ns, target, actionScript, plan, hosts, gap) {
     const state = hosts.hosts.map(h => ({ ...h }));
     const actionRam = hosts.actionRam;
+    const batchSpacing = calcBatchSpacing(gap);
 
-    const steps = [
-        { action: "weaken", threads: plan.weaken1Threads, delay: schedule.weaken1Start },
-        { action: "hack", threads: plan.hackThreads, delay: schedule.hackStart },
-        { action: "grow", threads: plan.growThreads, delay: schedule.growStart },
-        { action: "weaken", threads: plan.weaken2Threads, delay: schedule.weaken2Start },
-    ];
+    for (let i = 0; i < plan.batchCount; i++) {
+        const offset = i * batchSpacing;
+        const batchSchedule = buildSchedule(ns, target, plan, gap, 0, offset);
+        const steps = [
+            { action: "weaken", threads: plan.weaken1Threads, delay: batchSchedule.weaken1Start },
+            { action: "hack", threads: plan.hackThreads, delay: batchSchedule.hackStart },
+            { action: "grow", threads: plan.growThreads, delay: batchSchedule.growStart },
+            { action: "weaken", threads: plan.weaken2Threads, delay: batchSchedule.weaken2Start },
+        ];
 
-    for (const step of steps) {
-        const assignments = allocateThreads(state, step.threads, actionRam);
-        if (assignments.assigned < step.threads) {
-            ns.print(`Not enough threads for ${step.action}; assigned ${assignments.assigned}/${step.threads}.`);
-            return false;
-        }
+        for (const step of steps) {
+            const assignments = allocateThreads(state, step.threads, actionRam);
+            if (assignments.assigned < step.threads) {
+                ns.print(`Not enough threads for ${step.action}; assigned ${assignments.assigned}/${step.threads}.`);
+                return false;
+            }
 
-        for (const job of assignments.jobs) {
-            ns.exec(actionScript, job.host, job.threads, target, step.action, step.delay);
+            for (const job of assignments.jobs) {
+                ns.exec(actionScript, job.host, job.threads, target, step.action, step.delay);
+            }
         }
     }
     return true;
@@ -288,16 +243,26 @@ function dispatchSimple(ns, target, actionScript, action, threads, hosts) {
     }
 }
 
-function logSchedule(ns, target, schedule) {
-    ns.print(`Scheduled batch for ${target}:`);
-    ns.print(` hack completes at ${toGMT(schedule.finishHack)}`);
-    ns.print(` weaken#1 completes at ${toGMT(schedule.finishWeaken1)}`);
-    ns.print(` grow completes at ${toGMT(schedule.finishGrow)}`);
-    ns.print(` weaken#2 completes at ${toGMT(schedule.finishWeaken2)}`);
+function logSchedule(ns, target, plan, schedule, gap) {
+    ns.print(`Scheduled ${plan.batchCount} batch(es) for ${target} using ${plan.threadsPerBatch} threads each.`);
+    ns.print(` First batch hack completes at ${toGMT(schedule.finishHack)}`);
+    ns.print(` First weaken#1 completes at ${toGMT(schedule.finishWeaken1)}`);
+    ns.print(` First grow completes at ${toGMT(schedule.finishGrow)}`);
+    ns.print(` First weaken#2 completes at ${toGMT(schedule.finishWeaken2)}`);
+    ns.print(` Batch spacing: ~${calcBatchSpacing(gap)}ms; finish spacing within batch: ~${gap}ms.`);
 }
 
 function toGMT(timestamp) {
     return new Date(timestamp).toISOString();
+}
+
+function calcBatchGap(ns, target) {
+    const weakenTime = ns.getWeakenTime(target);
+    return Math.max(200, Math.min(750, Math.round(weakenTime * 0.02)));
+}
+
+function calcBatchSpacing(gap) {
+    return Math.max(200, Math.floor(gap / 2));
 }
 
 /**
