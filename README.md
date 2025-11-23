@@ -35,3 +35,7 @@ Quick options:
 - **Bitburner wget:** re-run your `wget` commands with the `--no-cache` flag (or delete the existing file first) to overwrite your copy with the updated GitHub version.
 
 Either approach discards local edits in favor of the repository’s version, which is the fastest way to resolve the conflict and keep playing.
+
+## FAQ: faction automation
+- There isn’t an API to “hack into” every faction. Invitations are gated by their standing requirements (city presence, stats, company rep, augmentations, or story progress), so you have to meet those conditions before a faction will invite you.
+- If you have Singularity access (BitNode 4 or Source-File 4), you can script joining a faction the moment you qualify and queue work/donations automatically. Without Singularity, you must join and start working manually, but you can still automate money-making (e.g., with these scripts) to hit donation thresholds faster.
