@@ -6,7 +6,7 @@
  * Behavior:
  * - Scans the network, attempts to gain root using any port crackers you own.
  * - Copies worker/action scripts to rooted servers and runs worker.js on home as a batch coordinator.
- * - Purchases a few small servers when you can easily afford them, reusing them as action runners.
+ * - Purchases the largest affordable servers (minimum 16GB) until you hit the purchased-server limit, reusing them as action runners.
  *
  * Assumptions:
  * - worker.js and action.js exist on your home computer.
@@ -18,10 +18,8 @@
 export async function main(ns) {
     const worker = "worker.js";
     const actionScript = "action.js";
-    const desiredPurchased = 5;    // buy up to 5 small servers early on
-    const purchaseRam = 64;        // preferred RAM for purchased servers; will downscale if unaffordable
+    const purchaseRam = ns.getPurchasedServerMaxRam(); // aim as high as your node allows
     const minPurchaseRam = 16;     // never buy smaller than this to avoid useless nodes
-    const maxPurchaseRam = 64;     // cap purchases at 64GB (16 → 32 → 64 progression)
     const purchaseBuffer = 5_000;  // keep this much money before buying servers
     const rescanDelay = 10_000;    // 10s between management loops
     const target = "foodnstuff";  // focus exclusively on foodnstuff for early-game batching
@@ -37,7 +35,7 @@ export async function main(ns) {
         } else {
             killWorkersEverywhere(ns, worker, rooted);
             deployCoordinator(ns, rooted, worker, actionScript, target);
-            buyStarterServers(ns, worker, actionScript, target, desiredPurchased, purchaseRam, minPurchaseRam, maxPurchaseRam, purchaseBuffer);
+            buyStarterServers(ns, worker, actionScript, target, purchaseRam, minPurchaseRam, purchaseBuffer);
         }
 
         await ns.sleep(rescanDelay);
@@ -162,28 +160,36 @@ function deployCoordinator(ns, rooted, worker, actionScript, target) {
  * @param {string} worker
  * @param {string} actionScript
  * @param {string} target
- * @param {number} desired
  * @param {number} ram
- * @param {number} maxRam
  * @param {number} buffer
  */
-function buyStarterServers(ns, worker, actionScript, target, desired, targetRam, minRam, maxRam, buffer) {
+function buyStarterServers(ns, worker, actionScript, target, targetRam, minRam, buffer) {
     const owned = ns.getPurchasedServers();
-    if (owned.length >= desired) return;
-
+    const limit = ns.getPurchasedServerLimit();
+    if (owned.length >= limit) return;
     const money = ns.getServerMoneyAvailable("home");
     const budget = money - buffer;
     if (budget <= 0) return;
 
-    const ram = pickAffordableRam(ns, targetRam, minRam, maxRam, budget);
-    if (ram === 0) return;
+    let availableBudget = budget;
+    let index = owned.length;
+    while (index < limit) {
+        const ram = pickAffordableRam(ns, targetRam, minRam, availableBudget);
+        if (ram === 0) break;
 
-    const name = `pserv-${owned.length}`;
-    const host = ns.purchaseServer(name, ram);
-    if (!host) return;
+        const cost = ns.getPurchasedServerCost(ram);
+        if (cost > availableBudget) break;
 
-    ns.scp([worker, actionScript], host);
-    ns.tprint(`Purchased ${host} (${ram}GB); the home coordinator will use it for batching ${target}.`);
+        const name = `pserv-${index}`;
+        const host = ns.purchaseServer(name, ram);
+        if (!host) break;
+
+        ns.scp([worker, actionScript], host);
+        ns.tprint(`Purchased ${host} (${ram}GB); the home coordinator will use it for batching ${target}.`);
+
+        availableBudget -= cost;
+        index += 1;
+    }
 }
 
 /**
@@ -191,11 +197,10 @@ function buyStarterServers(ns, worker, actionScript, target, desired, targetRam,
  * @param {NS} ns
  * @param {number} preferredRam
  * @param {number} minRam
- * @param {number} maxRam
  * @param {number} budget
  */
-function pickAffordableRam(ns, preferredRam, minRam, maxRam, budget) {
-    const allowedMax = Math.min(maxRam, ns.getPurchasedServerMaxRam());
+function pickAffordableRam(ns, preferredRam, minRam, budget) {
+    const allowedMax = ns.getPurchasedServerMaxRam();
     let ram = Math.min(preferredRam, allowedMax);
 
     // Step down until the server cost fits inside the budget.
