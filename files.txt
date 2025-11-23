@@ -5,3 +5,4 @@ helloworld.js
 worker.js
 monitor.js
 microbatch.js
+upgrade.js
