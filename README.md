@@ -7,7 +7,7 @@ This repository contains a small set of Bitburner scripts intended to accelerate
 - `helloworld.js` — Minimal "Hello, world!" script for quick testing.
 - `action.js` — Helper used by the batch coordinator to run a single hack/grow/weaken action (threads are provided by `ns.exec`) and log the GMT completion time for each action instance; defaults to `foodnstuff` if you omit the target.
 - `worker.js` — Batching coordinator that preps `foodnstuff` then fires tightly spaced hack/grow/weaken batches (sub-1s spacing when possible), scales thread counts based on available RAM, and logs when each step should finish in GMT.
-- `microbatch.js` — Lightweight alternative that continuously fires tiny hack/grow/weaken cycles (10 threads max per action) with tight millisecond spacing, waiting for network RAM before each batch.
+- `microbatch.js` — Lightweight alternative that continuously fires tiny hack/grow/weaken cycles (10 threads max per action) with tight millisecond spacing, using single-thread grows and scaling hack/weaken threads to leave ~99% money before each recovery, waiting for network RAM before each batch.
 - `bootstrap.js` — Manager script that roots servers, focuses the network on `foodnstuff`, copies helpers everywhere, starts the coordinator on home, and keeps buying/using purchased servers when you can afford them (never below 16GB RAM).
 - `monitor.js` — Live dashboard listing rooted servers that have money (filters out zero-max hosts) with money %, security, hack/grow/weaken times, threads to prep to max, and a rough ETA to finish prep, refreshed every few seconds (defaults to the 20 lowest-max-money servers, configurable via arg).
 
@@ -25,7 +25,7 @@ This repository contains a small set of Bitburner scripts intended to accelerate
 - Keep the scripts running while you explore or do crime jobs; they will keep your money flowing in the background.
 - The batch coordinator prepares `foodnstuff` to high money/low security and then launches hack → weaken → grow → weaken batches that finish a few hundred milliseconds apart. If RAM is tight, it scales thread counts down and increases/decreases batch concurrency based on how many threads are available, printing expected completion times in GMT so you can see when money will land.
 - Each time you run `bootstrap.js` it kills existing `worker.js` instances across your network, copies the latest helpers, and restarts the coordinator so updates propagate everywhere automatically.
-- Use `microbatch.js` if you want constant, tiny cycles with up to 10 threads per action and minimal spacing; it will pause when the network runs out of RAM and resume once space frees up.
+- Use `microbatch.js` if you want constant, tiny cycles with up to 10 threads per action and minimal spacing; it will pause when the network runs out of RAM and resume once space frees up while sizing hack/weaken around single-thread grows to keep the target near 99% money.
 - Replace `worker.js` with a more advanced batcher once you move into mid-game.
 - Keep `monitor.js` running in a tail window (e.g., `run monitor.js 2000 20`) to watch money %, prep threads, and rough ETAs for each rooted host; the second arg controls how many of the lowest-max-money servers to display.
 
