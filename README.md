@@ -16,7 +16,7 @@ This repository contains a small set of Bitburner scripts intended to accelerate
 ## Dependencies and assumptions
 - `bootstrap.js` assumes `worker.js` is present on `home`.
 - It will use any port crackers you have (`BruteSSH.exe`, `FTPCrack.exe`, `relaySMTP.exe`, `HTTPWorm.exe`, `SQLInject.exe`), but it also works with only `NUKE.exe`.
-- Designed for early-game RAM; purchased servers default to 8GB so they are affordable. You can edit `purchaseRam` and `desiredPurchased` inside `bootstrap.js` as you progress.
+- Designed for early-game RAM; purchased servers default to 8GB but will automatically downsize to whatever you can afford. You can edit `purchaseRam` and `desiredPurchased` inside `bootstrap.js` as you progress.
 
 ## Tips for using the pack
 - Keep the scripts running while you explore or do crime jobs; they will keep your money flowing in the background.

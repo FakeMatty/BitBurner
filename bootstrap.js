@@ -19,7 +19,7 @@
 export async function main(ns) {
     const worker = "worker.js";
     const desiredPurchased = 5;    // buy up to 5 small servers early on
-    const purchaseRam = 8;         // RAM for purchased servers; adjust as funds allow
+    const purchaseRam = 8;         // preferred RAM for purchased servers; will downscale if unaffordable
     const purchaseBuffer = 5_000;  // keep this much money before buying servers
     const rescanDelay = 10_000;    // 10s between management loops
 
@@ -175,13 +175,16 @@ function deployToRooted(ns, rooted, worker, target) {
  * @param {number} ram
  * @param {number} buffer
  */
-function buyStarterServers(ns, worker, target, desired, ram, buffer) {
+function buyStarterServers(ns, worker, target, desired, targetRam, buffer) {
     const owned = ns.getPurchasedServers();
     if (owned.length >= desired) return;
 
-    const cost = ns.getPurchasedServerCost(ram);
     const money = ns.getServerMoneyAvailable("home");
-    if (money < cost + buffer) return;
+    const budget = money - buffer;
+    if (budget <= 0) return;
+
+    const ram = pickAffordableRam(ns, targetRam, budget);
+    if (ram === 0) return;
 
     const name = `pserv-${owned.length}`;
     const host = ns.purchaseServer(name, ram);
@@ -193,4 +196,24 @@ function buyStarterServers(ns, worker, target, desired, ram, buffer) {
         ns.exec(worker, host, threads, target);
     }
     ns.tprint(`Purchased ${host} (${ram}GB) and started hacking ${target}`);
+}
+
+/**
+ * Pick the largest power-of-two RAM we can afford without dropping below the buffer.
+ * @param {NS} ns
+ * @param {number} preferredRam
+ * @param {number} budget
+ */
+function pickAffordableRam(ns, preferredRam, budget) {
+    const maxRam = ns.getPurchasedServerMaxRam();
+    let ram = Math.min(preferredRam, maxRam);
+
+    // Step down until the server cost fits inside the budget.
+    while (ram >= 2 && ns.getPurchasedServerCost(ram) > budget) {
+        ram /= 2;
+    }
+
+    // Ensure we don't propose a RAM size we still can't afford.
+    if (ns.getPurchasedServerCost(ram) > budget) return 0;
+    return ram;
 }
