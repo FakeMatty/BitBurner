@@ -35,6 +35,7 @@ export async function main(ns) {
         } else {
             killWorkersEverywhere(ns, worker, rooted);
             deployCoordinator(ns, rooted, worker, actionScript, target);
+            upgradeSmallestServer(ns, purchaseRam, minPurchaseRam, purchaseBuffer);
             buyStarterServers(ns, worker, actionScript, target, purchaseRam, minPurchaseRam, purchaseBuffer);
         }
 
@@ -211,4 +212,52 @@ function pickAffordableRam(ns, preferredRam, minRam, budget) {
     // Ensure we don't propose a RAM size we still can't afford.
     if (ram < minRam || ns.getPurchasedServerCost(ram) > budget) return 0;
     return ram;
+}
+
+/**
+ * Every management tick, look for the smallest purchased server and upgrade it
+ * to the largest RAM you can afford (up to the BitNode cap).
+ *
+ * @param {NS} ns
+ * @param {number} targetRam maximum desired RAM (usually the node cap)
+ * @param {number} minRam minimum RAM you care about upgrading to
+ * @param {number} buffer amount of money to keep on hand
+ */
+function upgradeSmallestServer(ns, targetRam, minRam, buffer) {
+    const servers = ns.getPurchasedServers();
+    if (servers.length === 0) return;
+
+    const budget = ns.getServerMoneyAvailable("home") - buffer;
+    if (budget <= 0) return;
+
+    // Pick the smallest RAM node to lift first.
+    let smallest = servers[0];
+    let smallestRam = ns.getServerMaxRam(smallest);
+    for (const host of servers) {
+        const ram = ns.getServerMaxRam(host);
+        if (ram < smallestRam) {
+            smallest = host;
+            smallestRam = ram;
+        }
+    }
+
+    const allowedMax = Math.min(targetRam, ns.getPurchasedServerMaxRam());
+    if (smallestRam >= allowedMax || smallestRam < minRam) return;
+
+    let bestRam = 0;
+    for (let ram = smallestRam * 2; ram <= allowedMax; ram *= 2) {
+        const cost = ns.getPurchasedServerUpgradeCost(smallest, ram);
+        if (cost <= budget) {
+            bestRam = ram;
+        } else {
+            break;
+        }
+    }
+
+    if (bestRam > smallestRam) {
+        const cost = ns.getPurchasedServerUpgradeCost(smallest, bestRam);
+        if (ns.upgradePurchasedServer(smallest, bestRam)) {
+            ns.tprint(`Upgraded ${smallest} from ${smallestRam}GB to ${bestRam}GB for ${ns.formatNumber(cost, 0)}.`);
+        }
+    }
 }
