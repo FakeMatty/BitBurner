@@ -74,20 +74,14 @@ function tryRoot(ns, host) {
     ];
 
     for (const opener of portOpeners) {
-        if (!ns.fileExists(opener.file, "home")) continue;
-
-        try {
-            // Netscript exposes these regardless of ownership; the call throws without the program.
-            opener.fn(host);
-        } catch {
-            // Skip unavailable helpers; the next loop will try again once you buy the program.
+        if (ns.fileExists(opener.file, "home")) {
+            try { opener.fn(host); } catch { /* ignore missing API when file absent */ }
         }
     }
 
-    const server = ns.getServer(host);
-    const enoughPorts = server.openPortCount >= server.numOpenPortsRequired;
-    const canHack = server.requiredHackingSkill <= ns.getHackingLevel();
-    if (enoughPorts && canHack) {
+    const requiredPorts = ns.getServerNumPortsRequired(host);
+    const openedPorts = ns.getServerOpenPortCount(host);
+    if (openedPorts >= requiredPorts && ns.getServerRequiredHackingLevel(host) <= ns.getHackingLevel()) {
         ns.nuke(host);
     }
 }
