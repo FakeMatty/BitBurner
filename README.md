@@ -8,7 +8,7 @@ This repository contains a small set of Bitburner scripts intended to accelerate
 - `action.js` — Helper used by the batch coordinator to run a single hack/grow/weaken action (threads are provided by `ns.exec`) and log the GMT completion time for each action instance; defaults to `foodnstuff` if you omit the target.
 - `worker.js` — Batching coordinator that preps `foodnstuff` then fires tightly spaced hack/grow/weaken batches (sub-1s spacing when possible), scales thread counts based on available RAM, and logs when each step should finish in GMT.
 - `bootstrap.js` — Manager script that roots servers, focuses the network on `foodnstuff`, copies helpers everywhere, starts the coordinator on home, and buys small servers when you can afford them (never below 16GB RAM).
-- `monitor.js` — Live dashboard listing rooted servers with money %, security, hack/grow/weaken times, threads to prep to max, and a rough ETA to finish prep, refreshed every few seconds (defaults to the 20 lowest-max-money servers, configurable via arg).
+- `monitor.js` — Live dashboard listing rooted servers that have money (filters out zero-max hosts) with money %, security, hack/grow/weaken times, threads to prep to max, and a rough ETA to finish prep, refreshed every few seconds (defaults to the 20 lowest-max-money servers, configurable via arg).
 
 ## How to start
 1. Pull the files into Bitburner (e.g., using `wget` or your GitHub fetcher).

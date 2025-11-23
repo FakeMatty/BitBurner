@@ -24,7 +24,7 @@ export async function main(ns) {
     while (true) {
         const servers = scanAll(ns);
         const rows = servers
-            .filter((host) => host !== "home")
+            .filter((host) => host !== "home" && ns.getServerMaxMoney(host) > 0)
             .map((host) => describe(ns, host))
             .sort((a, b) => a.maxMoney - b.maxMoney)
             .slice(0, Math.max(0, limit));
