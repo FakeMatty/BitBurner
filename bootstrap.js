@@ -80,7 +80,7 @@ function tryRoot(ns, host) {
     }
 
     const requiredPorts = ns.getServerNumPortsRequired(host);
-    const openedPorts = ns.getServer(host).openPortCount;
+    const openedPorts = ns.getServerOpenPortCount(host);
     if (openedPorts >= requiredPorts && ns.getServerRequiredHackingLevel(host) <= ns.getHackingLevel()) {
         ns.nuke(host);
     }
