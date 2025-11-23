@@ -11,13 +11,13 @@
  */
 export async function main(ns) {
     const [firstArg, maybeAction, delay = 0] = ns.args;
-    const defaultTarget = "n00dles";
+    const defaultTarget = "foodnstuff";
     const action = normalizeAction(firstArg) || normalizeAction(maybeAction);
     const target = normalizeAction(firstArg) ? defaultTarget : (firstArg || defaultTarget);
 
     if (!action) {
         ns.tprint("Usage: run action.js <target> <hack|grow|weaken> [delayMs]\n" +
-            "If no target is provided, defaults to n00dles (smallest server).");
+            "If no target is provided, defaults to foodnstuff.");
         return;
     }
 

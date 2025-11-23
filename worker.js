@@ -2,7 +2,7 @@
  * Early batching coordinator that prepares a target then fires small hack-grow-weaken batches.
  *
  * Usage: run worker.js [target] [actionScript]
- * - target: server name to hack (defaults to n00dles)
+ * - target: server name to hack (defaults to foodnstuff)
  * - actionScript: helper script used to run individual actions (default: action.js)
  *
  * Behavior:
@@ -16,7 +16,7 @@
  * @param {NS} ns
  */
 export async function main(ns) {
-    const preferredTarget = ns.args[0] || "n00dles";
+    const preferredTarget = ns.args[0] || "foodnstuff";
     const actionScript = ns.args[1] || "action.js";
 
     const prepareSecBuffer = 0.5;

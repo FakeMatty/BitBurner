@@ -19,11 +19,12 @@ export async function main(ns) {
     const worker = "worker.js";
     const actionScript = "action.js";
     const desiredPurchased = 5;    // buy up to 5 small servers early on
-    const purchaseRam = 8;         // preferred RAM for purchased servers; will downscale if unaffordable
-    const minPurchaseRam = 4;      // never buy smaller than this to avoid useless nodes
+    const purchaseRam = 64;        // preferred RAM for purchased servers; will downscale if unaffordable
+    const minPurchaseRam = 16;     // never buy smaller than this to avoid useless nodes
+    const maxPurchaseRam = 64;     // cap purchases at 64GB (16 → 32 → 64 progression)
     const purchaseBuffer = 5_000;  // keep this much money before buying servers
     const rescanDelay = 10_000;    // 10s between management loops
-    const target = "n00dles";     // focus exclusively on n00dles for early-game batching
+    const target = "foodnstuff";  // focus exclusively on foodnstuff for early-game batching
 
     ns.disableLog("scan");
     ns.disableLog("sleep");
@@ -36,7 +37,7 @@ export async function main(ns) {
         } else {
             killWorkersEverywhere(ns, worker, rooted);
             deployCoordinator(ns, rooted, worker, actionScript, target);
-            buyStarterServers(ns, worker, actionScript, target, desiredPurchased, purchaseRam, minPurchaseRam, purchaseBuffer);
+            buyStarterServers(ns, worker, actionScript, target, desiredPurchased, purchaseRam, minPurchaseRam, maxPurchaseRam, purchaseBuffer);
         }
 
         await ns.sleep(rescanDelay);
@@ -163,9 +164,10 @@ function deployCoordinator(ns, rooted, worker, actionScript, target) {
  * @param {string} target
  * @param {number} desired
  * @param {number} ram
+ * @param {number} maxRam
  * @param {number} buffer
  */
-function buyStarterServers(ns, worker, actionScript, target, desired, targetRam, minRam, buffer) {
+function buyStarterServers(ns, worker, actionScript, target, desired, targetRam, minRam, maxRam, buffer) {
     const owned = ns.getPurchasedServers();
     if (owned.length >= desired) return;
 
@@ -173,7 +175,7 @@ function buyStarterServers(ns, worker, actionScript, target, desired, targetRam,
     const budget = money - buffer;
     if (budget <= 0) return;
 
-    const ram = pickAffordableRam(ns, targetRam, minRam, budget);
+    const ram = pickAffordableRam(ns, targetRam, minRam, maxRam, budget);
     if (ram === 0) return;
 
     const name = `pserv-${owned.length}`;
@@ -189,11 +191,12 @@ function buyStarterServers(ns, worker, actionScript, target, desired, targetRam,
  * @param {NS} ns
  * @param {number} preferredRam
  * @param {number} minRam
+ * @param {number} maxRam
  * @param {number} budget
  */
-function pickAffordableRam(ns, preferredRam, minRam, budget) {
-    const maxRam = ns.getPurchasedServerMaxRam();
-    let ram = Math.min(preferredRam, maxRam);
+function pickAffordableRam(ns, preferredRam, minRam, maxRam, budget) {
+    const allowedMax = Math.min(maxRam, ns.getPurchasedServerMaxRam());
+    let ram = Math.min(preferredRam, allowedMax);
 
     // Step down until the server cost fits inside the budget.
     while (ram > minRam && ns.getPurchasedServerCost(ram) > budget) {
