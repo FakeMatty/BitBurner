@@ -13,7 +13,7 @@
  * - worker.js exists on your home computer.
  * - You start with NUKE.exe; other port crackers are used automatically if present.
  * - Designed for a fresh Bitburner save; swap out once you move into mid-game batching.
- *
+ * Test
  * @param {NS} ns
  */
 export async function main(ns) {
@@ -73,23 +73,15 @@ function tryRoot(ns, host) {
         { file: "SQLInject.exe", fn: ns.sqlinject },
     ];
 
-    let opened = 0;
     for (const opener of portOpeners) {
-        if (!ns.fileExists(opener.file, "home")) continue;
-
-        try {
-            // Netscript exposes these regardless of ownership; the call throws without the program.
-            opener.fn(host);
-            opened += 1;
-        } catch {
-            // Skip unavailable helpers; the next loop will try again once you buy the program.
+        if (ns.fileExists(opener.file, "home")) {
+            try { opener.fn(host); } catch { /* ignore missing API when file absent */ }
         }
     }
 
     const requiredPorts = ns.getServerNumPortsRequired(host);
-    const requiredLevel = ns.getServerRequiredHackingLevel(host);
-    const canHack = requiredLevel <= ns.getHackingLevel();
-    if (opened >= requiredPorts && canHack) {
+    const openedPorts = ns.getServerOpenPortCount(host);
+    if (openedPorts >= requiredPorts && ns.getServerRequiredHackingLevel(host) <= ns.getHackingLevel()) {
         ns.nuke(host);
     }
 }
