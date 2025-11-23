@@ -1,14 +1,15 @@
 /**
- * Micro-batcher that repeatedly fires small hack -> weaken -> grow -> weaken batches
- * with tight spacing, capping each exec call to 10 threads and waiting for free
- * RAM across rooted servers before launching a batch.
+ * Micro-batcher that repeatedly fires tight hack -> grow -> weaken cycles with
+ * single-thread hacks, sized grows to restore ~99% money, and enough weaken
+ * threads to return to minimum security. Capped at 10 threads per exec and will
+ * wait for network RAM before launching a cycle.
  *
- * Usage: run microbatch.js [target] [maxThreadsPerExec=10] [homeReserveRam=0] [gapMs=250]
+ * Usage: run microbatch.js [target] [maxThreadsPerExec=10] [homeReserveRam=0] [gapMs=100]
  *
  * - target: server to batch against (default: foodnstuff)
  * - maxThreadsPerExec: upper bound on threads per action.js exec (hard capped at 10)
  * - homeReserveRam: RAM in GB to leave free on home
- * - gapMs: spacing in milliseconds between batch steps and between batches
+ * - gapMs: spacing in milliseconds between batch steps (defaults to 100ms)
  *
  * Requires action.js to be present on hosts that execute it.
  * @param {NS} ns
@@ -17,7 +18,7 @@ export async function main(ns) {
     const target = String(ns.args[0] || "foodnstuff");
     const maxThreadsPerExec = clamp(Number(ns.args[1]) || 10, 1, 10);
     const homeReserve = Math.max(0, Number(ns.args[2]) || 0);
-    const gapMs = Math.max(10, Number(ns.args[3]) || 250);
+    const gapMs = Math.max(50, Number(ns.args[3]) || 100);
 
     const actionScript = "action.js";
     const actionRam = Math.max(1.75, ns.getScriptRam(actionScript, "home") || 0);
@@ -28,16 +29,15 @@ export async function main(ns) {
         const hosts = getRootedHosts(ns).filter(h => ns.getServerMaxRam(h) > 0);
         const totalThreads = availableThreads(ns, hosts, actionRam, homeReserve);
 
-        const growThreads = 1;
-        const growMultiplier = estimateGrowthMultiplierForOneThread(ns, target);
-        const hackPctPerThread = Math.max(0, ns.hackAnalyze(target));
-        const weakenEffect = ns.weakenAnalyze(1);
-        const hackTargetFraction = 1 - 0.99 / growMultiplier;
-        const hackThreads = Math.max(1, Math.floor(hackTargetFraction / (hackPctPerThread || Number.EPSILON)));
-        const weakenHack = Math.max(1, Math.ceil(ns.hackAnalyzeSecurity(hackThreads, target) / (weakenEffect || 0.05)));
-        const weakenGrow = Math.max(1, Math.ceil(ns.growthAnalyzeSecurity(growThreads, target) / (weakenEffect || 0.05)));
+        const hackThreads = 1;
+        const hackPct = Math.max(0, ns.hackAnalyze(target));
+        const growthFactor = Math.max(1.01, 0.99 / Math.max(0.01, 1 - hackPct));
+        const growThreads = Math.max(1, Math.ceil(ns.growthAnalyze(target, growthFactor)));
+        const weakenEffect = ns.weakenAnalyze(1) || 0.05;
+        const securityDelta = ns.hackAnalyzeSecurity(hackThreads, target) + ns.growthAnalyzeSecurity(growThreads, target);
+        const weakenThreads = Math.max(1, Math.ceil(securityDelta / weakenEffect));
 
-        const threadsNeeded = hackThreads + weakenHack + growThreads + weakenGrow;
+        const threadsNeeded = hackThreads + growThreads + weakenThreads;
         if (totalThreads < threadsNeeded) {
             ns.print(`Waiting for RAM: need ${threadsNeeded} threads worth (${(threadsNeeded * actionRam).toFixed(2)}GB), have ${totalThreads}`);
             await ns.sleep(500);
@@ -51,9 +51,8 @@ export async function main(ns) {
         const now = Date.now();
         const steps = [
             { action: "hack", delay: 0, duration: hackTime, threads: hackThreads },
-            { action: "weaken", delay: gapMs, duration: weakenTime, threads: weakenHack },
-            { action: "grow", delay: gapMs * 2, duration: growTime, threads: growThreads },
-            { action: "weaken", delay: gapMs * 3, duration: weakenTime, threads: weakenGrow },
+            { action: "grow", delay: gapMs, duration: growTime, threads: growThreads },
+            { action: "weaken", delay: gapMs * 2, duration: weakenTime, threads: weakenThreads },
         ];
 
         let ok = true;
@@ -136,28 +135,6 @@ function getRootedHosts(ns) {
     }
 
     return rooted;
-}
-
-function estimateGrowthMultiplierForOneThread(ns, target) {
-    let low = 1;
-    let high = 2;
-
-    while (ns.growthAnalyze(target, high) < 1 && high < 1e6) {
-        low = high;
-        high *= 2;
-    }
-
-    for (let i = 0; i < 25; i++) {
-        const mid = (low + high) / 2;
-        const threads = ns.growthAnalyze(target, mid);
-        if (threads > 1) {
-            high = mid;
-        } else {
-            low = mid;
-        }
-    }
-
-    return Math.max(1, high);
 }
 
 function clamp(val, min, max) {
