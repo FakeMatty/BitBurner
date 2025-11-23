@@ -61,6 +61,7 @@ export async function main(ns) {
             continue;
         }
 
+        logSchedule(ns, target, schedule);
         const sleepTime = Math.max(0, schedule.finishWeaken2 - Date.now() + delayBuffer);
         await ns.sleep(sleepTime);
     }
@@ -150,6 +151,8 @@ function hostState(ns, homeReservePct, actionScript) {
         const threads = Math.floor(freeRam / actionRam);
         if (threads > 0) hosts.push({ host: pserv, freeRam, threads });
     }
+
+    hosts.sort((a, b) => b.freeRam - a.freeRam);
 
     const totalThreads = hosts.reduce((sum, h) => sum + h.threads, 0);
     return { hosts, totalThreads, actionRam };
@@ -244,7 +247,7 @@ function buildSchedule(ns, target, plan, gap, buffer) {
     const growStart = Math.max(0, finishGrow - growTime - now);
     const weaken2Start = Math.max(0, finishWeaken2 - weakenTime - now);
 
-    return { hackStart, weaken1Start, growStart, weaken2Start, finishWeaken2 };
+    return { hackStart, weaken1Start, growStart, weaken2Start, finishHack, finishWeaken1, finishGrow, finishWeaken2 };
 }
 
 /**
@@ -283,6 +286,18 @@ function dispatchSimple(ns, target, actionScript, action, threads, hosts) {
     for (const job of assignments.jobs) {
         ns.exec(actionScript, job.host, job.threads, target, action, 0);
     }
+}
+
+function logSchedule(ns, target, schedule) {
+    ns.print(`Scheduled batch for ${target}:`);
+    ns.print(` hack completes at ${toGMT(schedule.finishHack)}`);
+    ns.print(` weaken#1 completes at ${toGMT(schedule.finishWeaken1)}`);
+    ns.print(` grow completes at ${toGMT(schedule.finishGrow)}`);
+    ns.print(` weaken#2 completes at ${toGMT(schedule.finishWeaken2)}`);
+}
+
+function toGMT(timestamp) {
+    return new Date(timestamp).toISOString();
 }
 
 /**

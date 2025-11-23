@@ -16,6 +16,11 @@ export async function main(ns) {
         return;
     }
 
+    const duration = getDuration(ns, target, action);
+    const startAt = Date.now() + Number(delay);
+    const finishAt = startAt + duration;
+    ns.print(`[${action}] scheduled start=${new Date(startAt).toISOString()} finish=${new Date(finishAt).toISOString()} GMT`);
+
     if (delay > 0) {
         await ns.sleep(delay);
     }
@@ -33,5 +38,17 @@ export async function main(ns) {
         default:
             ns.tprint(`Unknown action: ${action}`);
             break;
+    }
+}
+
+function getDuration(ns, target, action) {
+    switch (action) {
+        case "hack":
+            return ns.getHackTime(target);
+        case "grow":
+            return ns.getGrowTime(target);
+        case "weaken":
+        default:
+            return ns.getWeakenTime(target);
     }
 }

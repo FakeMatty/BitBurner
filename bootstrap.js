@@ -21,6 +21,7 @@ export async function main(ns) {
     const actionScript = "action.js";
     const desiredPurchased = 5;    // buy up to 5 small servers early on
     const purchaseRam = 8;         // preferred RAM for purchased servers; will downscale if unaffordable
+    const minPurchaseRam = 4;      // never buy smaller than this to avoid useless nodes
     const purchaseBuffer = 5_000;  // keep this much money before buying servers
     const rescanDelay = 10_000;    // 10s between management loops
     const maxActionTime = 15_000;  // keep single actions under 15 seconds
@@ -38,7 +39,7 @@ export async function main(ns) {
         } else {
             killWorkersEverywhere(ns, worker, rooted);
             deployCoordinator(ns, rooted, worker, actionScript, target);
-            buyStarterServers(ns, worker, actionScript, target, desiredPurchased, purchaseRam, purchaseBuffer);
+            buyStarterServers(ns, worker, actionScript, target, desiredPurchased, purchaseRam, minPurchaseRam, purchaseBuffer);
         }
 
         await ns.sleep(rescanDelay);
@@ -204,7 +205,7 @@ function deployCoordinator(ns, rooted, worker, actionScript, target) {
  * @param {number} ram
  * @param {number} buffer
  */
-function buyStarterServers(ns, worker, actionScript, target, desired, targetRam, buffer) {
+function buyStarterServers(ns, worker, actionScript, target, desired, targetRam, minRam, buffer) {
     const owned = ns.getPurchasedServers();
     if (owned.length >= desired) return;
 
@@ -212,7 +213,7 @@ function buyStarterServers(ns, worker, actionScript, target, desired, targetRam,
     const budget = money - buffer;
     if (budget <= 0) return;
 
-    const ram = pickAffordableRam(ns, targetRam, budget);
+    const ram = pickAffordableRam(ns, targetRam, minRam, budget);
     if (ram === 0) return;
 
     const name = `pserv-${owned.length}`;
@@ -227,18 +228,19 @@ function buyStarterServers(ns, worker, actionScript, target, desired, targetRam,
  * Pick the largest power-of-two RAM we can afford without dropping below the buffer.
  * @param {NS} ns
  * @param {number} preferredRam
+ * @param {number} minRam
  * @param {number} budget
  */
-function pickAffordableRam(ns, preferredRam, budget) {
+function pickAffordableRam(ns, preferredRam, minRam, budget) {
     const maxRam = ns.getPurchasedServerMaxRam();
     let ram = Math.min(preferredRam, maxRam);
 
     // Step down until the server cost fits inside the budget.
-    while (ram >= 2 && ns.getPurchasedServerCost(ram) > budget) {
+    while (ram > minRam && ns.getPurchasedServerCost(ram) > budget) {
         ram /= 2;
     }
 
     // Ensure we don't propose a RAM size we still can't afford.
-    if (ns.getPurchasedServerCost(ram) > budget) return 0;
+    if (ram < minRam || ns.getPurchasedServerCost(ram) > budget) return 0;
     return ram;
 }
