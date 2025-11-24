@@ -1,54 +1,42 @@
 # Bitburner Early-Game Script Pack
 
-This repository contains a small set of Bitburner scripts intended to accelerate the earliest part of a new save. They automate rooting hosts, launching hack/grow/weaken loops, and buying cheap starter servers so you can snowball money quickly.
+This repository now centers around a lightweight HWGW automation stack designed for early-to-mid game Bitburner play. It follows common community guidance: prep the target, fire one-shot workers with tight-but-safe gaps, and manage everything from a single launcher.
 
-## Files
-- `hello.js` — Simple greeting used to verify you can pull scripts from GitHub.
-- `helloworld.js` — Minimal "Hello, world!" script for quick testing.
-- `action.js` — Helper used by the batch coordinator to run a single hack/grow/weaken action (threads are provided by `ns.exec`) and log the GMT completion time for each action instance; defaults to `foodnstuff` if you omit the target.
-- `worker.js` — Batching coordinator that preps `foodnstuff` then fires tightly spaced hack/grow/weaken batches (sub-1s spacing when possible), scales thread counts based on available RAM, and logs when each step should finish in GMT.
-- `microbatch.js` — Lightweight alternative that continuously fires tiny hack (1 thread) / grow (capped at 3 threads) / weaken cycles (10 threads max per action) with ~100ms spacing. It sizes grows from the current money state to bring the target back to ~99% after the hack and adds enough weaken threads to undo both security gains *and* any extra security above minimum. It pauses when the network runs out of RAM and staggers multiple batches across all rooted hosts.
-- `batcher.js` — Home-managed batch coordinator for a single target (default `foodnstuff`) that preps to min security / max money, then fires hack → weaken → grow → weaken batches with completions ~200ms apart. Grow steps are capped at 5 threads to stay RAM-friendly for early players while still using all rooted servers for capacity.
-- `bootstrap.js` — Manager script that roots servers, focuses the network on `foodnstuff`, copies helpers everywhere, starts the coordinator on home, and keeps buying/using purchased servers when you can afford them (never below 16GB RAM).
-- `upgrade.js` — Standalone purchased-server upgrader that every interval (default 60 seconds) upgrades your smallest purchased server to the largest affordable RAM tier up to the BitNode cap, using all available cash.
-- `monitor.js` — Live dashboard listing rooted servers that have money (filters out zero-max hosts) with money %, security, hack/grow/weaken times, threads to prep to max, and a rough ETA to finish prep, refreshed every few seconds (defaults to the 20 lowest-max-money servers, configurable via arg).
+## Community-backed approach (quick summary)
+- The usual progression is single-loop scripts → coordinated HGW loops → batch managers (HWGW). The code here sits in that last bucket.
+- Use tiny one-shot worker scripts for hack/grow/weaken and let a manager handle timing with landing gaps around 100–200ms.
+- Always prep first (max money, min security) and re-prep if the target drifts.
+- Recompute timings regularly because your hack level changes runtime lengths.
+- A “master control program” on `home` that auto-roots servers, picks a target, and launches the batcher is a common pattern—`mcp.js` does exactly that.
 
-## How to start
-1. Pull the files into Bitburner (e.g., using `wget` or your GitHub fetcher).
-2. On `home`, run `run bootstrap.js`.
-3. Optionally start `run upgrade.js` to keep purchased servers climbing in RAM every minute.
-4. Watch the terminal for purchased server messages; the scripts will automatically spread helpers and focus batches on `foodnstuff` once rooted.
+## Core automation
+- `mcp.js` — Master launcher that scans the network, auto-roots with any port crackers you own, picks a profitable target (`maxMoney * hackChance / hackTime`), kills older hacking scripts, and starts the batcher on `home`. It also has hooks to start your other scripts (Hacknet, purchased servers, etc.).
+- `batcher.js` — Stable single-target HWGW batch controller. It preps the target, computes thread counts based on desired steal fraction and the combined free RAM of all purchased servers, schedules one batch at a time with finish order Hack → Weaken → Grow → Weaken, and keeps running indefinitely with automatic re-prep. Worker processes never run on the host that launches the batcher, and the RAM buffer scales down on tiny purchased servers so they still contribute threads.
+- `hack.js`, `grow.js`, `weaken.js` — Minimal one-shot workers (sleep → action → log) used by the batcher. Keep them on `home`; the batcher copies them to your purchased servers automatically.
 
-## Dependencies and assumptions
-- `bootstrap.js` assumes `worker.js` and `action.js` are present on `home`.
-- It will use any port crackers you have (`BruteSSH.exe`, `FTPCrack.exe`, `relaySMTP.exe`, `HTTPWorm.exe`, `SQLInject.exe`), but it also works with only `NUKE.exe`.
-- Designed for early-game RAM; purchased servers always stay at or above 16GB and scale as high as your BitNode allows (up to `getPurchasedServerMaxRam()`) while filling every purchased-slot once you can afford the cost. You can edit `purchaseRam` and `minPurchaseRam` inside `bootstrap.js` as you progress, and run `upgrade.js` in parallel to keep bumping RAM with your extra cash.
+## Other included utilities
+- `hello.js`, `helloworld.js` — Small greeting scripts for connectivity tests.
+- `action.js` — General-purpose one-shot helper used by older batch managers.
+- `worker.js` — Legacy batching coordinator that spreads actions across rooted hosts with capped grow steps.
+- `microbatch.js` — Simple, tiny HGW loop that fires 1-thread hacks with modest grows/weakens when RAM is tight.
+- `bootstrap.js` — Roots servers, copies helpers, focuses the network on `foodnstuff`, and keeps purchased servers stocked (pairs with `worker.js`).
+- `upgrade.js` — Purchased-server upgrader that periodically buys the biggest server you can afford up to the BitNode cap.
+- `monitor.js` — Live dashboard for money %, security, HGW times, and prep ETAs across rooted servers.
 
-## Tips for using the pack
-- Keep the scripts running while you explore or do crime jobs; they will keep your money flowing in the background.
-- The batch coordinator prepares `foodnstuff` to high money/low security and then launches hack → weaken → grow → weaken batches that finish a few hundred milliseconds apart. If RAM is tight, it scales thread counts down and increases/decreases batch concurrency based on how many threads are available, printing expected completion times in GMT so you can see when money will land.
-- Each time you run `bootstrap.js` it kills existing `worker.js` instances across your network, copies the latest helpers, and restarts the coordinator so updates propagate everywhere automatically.
-- Use `batcher.js` from `home` if you want a clear, single-target batcher with small gaps and grow steps capped at 5 threads. It preps the target first, then runs repeating hack → weaken → grow → weaken cycles while respecting a RAM reserve on `home`.
-- Use `microbatch.js` if you want constant, tiny cycles with a 1-thread hack, ~100ms spacing, and up to 10 threads per action; it caps grow at 3 threads, staggers multiple batches across all rooted hosts, pauses when the network runs out of RAM, and resumes once space frees up while sizing grow from the current money level to push the target back to ~99% money and weaken to minimum security (including current security overshoot).
-- Replace `worker.js` with a more advanced batcher once you move into mid-game.
-- Keep `monitor.js` running in a tail window (e.g., `run monitor.js 2000 20`) to watch money %, prep threads, and rough ETAs for each rooted host; the second arg controls how many of the lowest-max-money servers to display.
+## Getting started
+1. Pull these files into Bitburner (e.g., via `wget`). Make sure `hack.js`, `grow.js`, and `weaken.js` live on `home` so they can be copied to purchased servers.
+2. From the terminal, run `run mcp.js` for a ~10% per-batch steal target, or `run mcp.js 0.2` if you have the RAM for larger batches.
+3. Add your own scripts to the `extraScripts` array in `mcp.js` to autostart them after the batcher.
+4. Keep `monitor.js` running in a tail window if you want a quick view of your rooted hosts while batches run.
 
-## Updating when GitHub reports a conflict
-If you see a GitHub conflict banner while trying to pull new versions of these files, you can safely favor the latest upstream changes because these scripts are meant to be overwritten as a set.
+## Plugging in your scripts
+- Drop your automation scripts on `home` and list them in `extraScripts` inside `mcp.js` along with any arguments they need.
+- The batcher only depends on the three worker files (`hack.js`, `grow.js`, `weaken.js`) and itself; everything else is optional. It expects at least one purchased server to provide RAM for hacking actions and will consider the target "drifted" only if it falls below ~90% max money or drifts above min security.
+- To iterate on or improve your scripts, start `mcp.js` to handle hacking money, then refine one utility at a time—e.g., swap in a better purchased-server manager—without touching the batcher.
 
-Quick options:
-- **Local git clone:** run `git fetch` then `git checkout origin/main -- .` to take the incoming version of every file, then commit or re-run your downloader.
-- **Bitburner wget:** re-run your `wget` commands with the `--no-cache` flag (or delete the existing file first) to overwrite your copy with the updated GitHub version.
+## Troubleshooting and updates
+- If Bitburner shows a sync conflict, re-run your `wget` commands with `--no-cache` (or delete the file first) to overwrite with the latest version.
+- If `mcp.js` reports missing files, ensure `hack.js`, `grow.js`, and `weaken.js` plus `batcher.js` are on `home`.
+- If `batcher.js` exits immediately, verify you own at least one purchased server with enough free RAM to host the worker threads.
 
-Either approach discards local edits in favor of the repository’s version, which is the fastest way to resolve the conflict and keep playing.
-
-## FAQ: faction automation
-- There isn’t an API to “hack into” every faction. Invitations are gated by their standing requirements (city presence, stats, company rep, augmentations, or story progress), so you have to meet those conditions before a faction will invite you.
-- If you have Singularity access (BitNode 4 or Source-File 4), you can script joining a faction the moment you qualify and queue work/donations automatically. Without Singularity, you must join and start working manually, but you can still automate money-making (e.g., with these scripts) to hit donation thresholds faster.
-
-## Batching basics (for new players)
-- **What is a batch?** A coordinated set of `hack`, `weaken`, `grow`, and `weaken` actions launched at the same time so they *finish* a few hundred milliseconds apart. This keeps security low while you repeatedly steal and refill a server.
-- **Why use a manager script?** Timing matters: every action’s runtime is locked in at launch. A manager on `home` (like `batcher.js`) computes the right thread counts and start delays so the completions land in order (hack → weaken → grow → weaken) without you micromanaging.
-- **How to run it:** `run batcher.js foodnstuff 16 5 200` leaves 16GB free on `home`, caps grow steps at 5 threads, and spaces completions ~200ms apart. Change the first arg to point at another rooted, money-bearing server when you’re ready to move past `foodnstuff`.
-- **How many threads?** The script calculates threads automatically: it hacks ~5% of the server’s money, grows back toward 99% with at most 5 threads, and adds enough weaken threads to erase the security bumps from both the hack and the grow.
-- **Can scripts “connect” for backdoors?** Only with Singularity functions (BitNode 4 / Source-File 4). Without that, you can paste terminal chains like `connect n00dles; connect CSEC; backdoor` yourself. Focus on batching for money now, then revisit backdoor automation later.
+Enjoy the faster ramp while keeping the setup simple and extensible for future upgrades.
