@@ -3,9 +3,9 @@ export async function main(ns) {
     ns.disableLog("ALL");
 
     const BATCHER = "batcher.js";
-    const HACK = "/shared/hack.js";
-    const GROW = "/shared/grow.js";
-    const WEAK = "/shared/weaken.js";
+    const HACK = "hack.js";
+    const GROW = "grow.js";
+    const WEAK = "weaken.js";
 
     const desiredHackFraction = ns.args[0] ?? 0.1; // 10% default
 

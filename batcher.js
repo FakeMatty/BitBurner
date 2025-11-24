@@ -9,16 +9,16 @@ export async function main(ns) {
     const batchSpacing = 200;   // ms gap between H, W1, G, W2 landings
     const safetyGap   = 100;    // extra ms to wait after W2 finishes before next batch
 
-    if (!ns.fileExists("/shared/hack.js", host) ||
-        !ns.fileExists("/shared/grow.js", host) ||
-        !ns.fileExists("/shared/weaken.js", host)) {
-        ns.tprint("batcher.js: missing /shared/{hack,grow,weaken}.js on " + host);
+    if (!ns.fileExists("hack.js", host) ||
+        !ns.fileExists("grow.js", host) ||
+        !ns.fileExists("weaken.js", host)) {
+        ns.tprint("batcher.js: missing {hack,grow,weaken}.js on " + host);
         return;
     }
 
-    const hackRam = ns.getScriptRam("/shared/hack.js", host);
-    const growRam = ns.getScriptRam("/shared/grow.js", host);
-    const weakRam = ns.getScriptRam("/shared/weaken.js", host);
+    const hackRam = ns.getScriptRam("hack.js", host);
+    const growRam = ns.getScriptRam("grow.js", host);
+    const weakRam = ns.getScriptRam("weaken.js", host);
 
     ns.tprint(`batcher.js starting on ${host} → target ${target}`);
 
@@ -66,7 +66,7 @@ function isPrepped(ns, target) {
 
 /**
  * Prepare the target server by growing to ~max money and weakening to ~min security,
- * using /shared/grow.js and /shared/weaken.js on the given host.
+ * using grow.js and weaken.js on the given host.
  */
 async function prepServer(ns, target, host, growRam, weakRam) {
     const minSec = ns.getServerMinSecurityLevel(target);
@@ -106,10 +106,10 @@ async function prepServer(ns, target, host, growRam, weakRam) {
         }
 
         if (weakenThreads > 0) {
-            ns.exec("/shared/weaken.js", host, weakenThreads, target, 0, "prepW");
+            ns.exec("weaken.js", host, weakenThreads, target, 0, "prepW");
         }
         if (growThreads > 0) {
-            ns.exec("/shared/grow.js", host, growThreads, target, 0, "prepG");
+            ns.exec("grow.js", host, growThreads, target, 0, "prepG");
         }
 
         const waitTime = Math.max(
@@ -223,28 +223,28 @@ async function scheduleSingleBatch(ns, target, host, batchId, cfg,
 
     // The order we exec() doesn't matter; the delays control finish order.
     if (cfg.w1Threads > 0) {
-        const pid = ns.exec("/shared/weaken.js", host, cfg.w1Threads,
+        const pid = ns.exec("weaken.js", host, cfg.w1Threads,
                             target, w1Delay, batchId, "W1");
         if (pid === 0) return false;
         pids.push(pid);
     }
 
     if (cfg.w2Threads > 0) {
-        const pid = ns.exec("/shared/weaken.js", host, cfg.w2Threads,
+        const pid = ns.exec("weaken.js", host, cfg.w2Threads,
                             target, w2Delay, batchId, "W2");
         if (pid === 0) return false;
         pids.push(pid);
     }
 
     if (cfg.growThreads > 0) {
-        const pid = ns.exec("/shared/grow.js", host, cfg.growThreads,
+        const pid = ns.exec("grow.js", host, cfg.growThreads,
                             target, growDelay, batchId, "G");
         if (pid === 0) return false;
         pids.push(pid);
     }
 
     if (cfg.hackThreads > 0) {
-        const pid = ns.exec("/shared/hack.js", host, cfg.hackThreads,
+        const pid = ns.exec("hack.js", host, cfg.hackThreads,
                             target, hackDelay, batchId, "H");
         if (pid === 0) return false;
         pids.push(pid);

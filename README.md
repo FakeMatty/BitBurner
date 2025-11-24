@@ -12,7 +12,7 @@ This repository now centers around a lightweight HWGW automation stack designed 
 ## Core automation
 - `mcp.js` — Master launcher that scans the network, auto-roots with any port crackers you own, picks a profitable target (`maxMoney * hackChance / hackTime`), kills older hacking scripts, and starts the batcher on `home`. It also has hooks to start your other scripts (Hacknet, purchased servers, etc.).
 - `batcher.js` — Stable single-target HWGW batch controller. It preps the target, computes thread counts based on desired steal fraction and available RAM, schedules one batch at a time with finish order Hack → Weaken → Grow → Weaken, and keeps running indefinitely with automatic re-prep.
-- `/shared/hack.js`, `/shared/grow.js`, `/shared/weaken.js` — Minimal one-shot workers (sleep → action → log) used by the batcher. Keep them on `home` (or the host running `batcher.js`).
+- `hack.js`, `grow.js`, `weaken.js` — Minimal one-shot workers (sleep → action → log) used by the batcher. Keep them on `home` (or the host running `batcher.js`).
 
 ## Other included utilities
 - `hello.js`, `helloworld.js` — Small greeting scripts for connectivity tests.
@@ -24,18 +24,18 @@ This repository now centers around a lightweight HWGW automation stack designed 
 - `monitor.js` — Live dashboard for money %, security, HGW times, and prep ETAs across rooted servers.
 
 ## Getting started
-1. Pull these files into Bitburner (e.g., via `wget`). Make sure the `/shared` directory exists with `hack.js`, `grow.js`, and `weaken.js` on `home`.
+1. Pull these files into Bitburner (e.g., via `wget`). Make sure `hack.js`, `grow.js`, and `weaken.js` live on `home` (the host running `batcher.js`).
 2. From the terminal, run `run mcp.js` for a ~10% per-batch steal target, or `run mcp.js 0.2` if you have the RAM for larger batches.
 3. Add your own scripts to the `extraScripts` array in `mcp.js` to autostart them after the batcher.
 4. Keep `monitor.js` running in a tail window if you want a quick view of your rooted hosts while batches run.
 
 ## Plugging in your scripts
 - Drop your automation scripts on `home` and list them in `extraScripts` inside `mcp.js` along with any arguments they need.
-- The batcher only depends on the three `/shared` worker files and itself; everything else is optional.
+- The batcher only depends on the three worker files (`hack.js`, `grow.js`, `weaken.js`) and itself; everything else is optional.
 - To iterate on or improve your scripts, start `mcp.js` to handle hacking money, then refine one utility at a time—e.g., swap in a better purchased-server manager—without touching the batcher.
 
 ## Troubleshooting and updates
 - If Bitburner shows a sync conflict, re-run your `wget` commands with `--no-cache` (or delete the file first) to overwrite with the latest version.
-- If `mcp.js` reports missing files, ensure `/shared/hack.js`, `/shared/grow.js`, and `/shared/weaken.js` plus `batcher.js` are on `home`.
+- If `mcp.js` reports missing files, ensure `hack.js`, `grow.js`, and `weaken.js` plus `batcher.js` are on `home`.
 
 Enjoy the faster ramp while keeping the setup simple and extensible for future upgrades.
