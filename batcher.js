@@ -70,7 +70,7 @@ function isPrepped(ns, target) {
     const sec = ns.getServerSecurityLevel(target);
     const money = ns.getServerMoneyAvailable(target);
 
-    return sec <= minSec + 0.1 && money >= maxMoney * 0.95;
+    return sec <= minSec + 0.1 && money >= maxMoney * 0.9;
 }
 
 /**
@@ -252,7 +252,8 @@ function getServerStates(ns, servers) {
     return servers.map((name) => {
         const maxRam = ns.getServerMaxRam(name);
         const usedRam = ns.getServerUsedRam(name);
-        const free = Math.max(0, maxRam - usedRam - 2); // leave a small buffer
+        const buffer = Math.min(2, maxRam * 0.1); // scale buffer down for tiny servers
+        const free = Math.max(0, maxRam - usedRam - buffer);
         return { name, free };
     }).filter((s) => s.free > 0);
 }
