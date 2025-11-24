@@ -10,3 +10,4 @@ monitor.js
 upgrade.js
 weaken.js
 worker.js
+mcp.js
