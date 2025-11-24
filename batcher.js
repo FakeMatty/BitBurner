@@ -6,8 +6,14 @@ export async function main(ns) {
     // Roughly what fraction of money to try to steal per batch (will be scaled down if RAM is low)
     const desiredHackFraction = ns.args[1] ?? 0.1; // 0.1 = 10%
     const host = ns.getHostname();
+    const purchasedServers = ns.getPurchasedServers().filter((s) => s !== host);
     const batchSpacing = 200;   // ms gap between H, W1, G, W2 landings
     const safetyGap   = 100;    // extra ms to wait after W2 finishes before next batch
+
+    if (purchasedServers.length === 0) {
+        ns.tprint("batcher.js: no purchased servers found. Buy servers before running batches.");
+        return;
+    }
 
     if (!ns.fileExists("hack.js", host) ||
         !ns.fileExists("grow.js", host) ||
@@ -16,13 +22,15 @@ export async function main(ns) {
         return;
     }
 
+    await ensureWorkersOnPurchased(ns, purchasedServers, host, ["hack.js", "grow.js", "weaken.js"]);
+
     const hackRam = ns.getScriptRam("hack.js", host);
     const growRam = ns.getScriptRam("grow.js", host);
     const weakRam = ns.getScriptRam("weaken.js", host);
 
     ns.tprint(`batcher.js starting on ${host} → target ${target}`);
 
-    await prepServer(ns, target, host, growRam, weakRam);
+    await prepServer(ns, target, purchasedServers, growRam, weakRam);
     ns.tprint(`batcher.js: target ${target} prepped.`);
 
     let batchId = 1;
@@ -30,10 +38,11 @@ export async function main(ns) {
         // Re-prep if the server drifted away from ideal state
         if (!isPrepped(ns, target)) {
             ns.print("Server drifted, re-prepping...");
-            await prepServer(ns, target, host, growRam, weakRam);
+            await prepServer(ns, target, purchasedServers, growRam, weakRam);
         }
 
-        const cfg = computeBatchThreads(ns, target, desiredHackFraction, host,
+        const serverState = getServerStates(ns, purchasedServers);
+        const cfg = computeBatchThreads(ns, target, desiredHackFraction, serverState,
                                         hackRam, growRam, weakRam);
         if (!cfg) {
             ns.print("Not enough free RAM to run even a tiny batch. Sleeping...");
@@ -41,8 +50,8 @@ export async function main(ns) {
             continue;
         }
 
-        const ok = await scheduleSingleBatch(ns, target, host, batchId, cfg,
-                                             batchSpacing, safetyGap);
+        const ok = await scheduleSingleBatch(ns, target, purchasedServers, batchId, cfg,
+                                             batchSpacing, safetyGap, hackRam, growRam, weakRam);
         if (!ok) {
             ns.print("Failed to launch batch (likely due to sudden RAM usage). Retrying...");
             await ns.sleep(5000);
@@ -66,9 +75,9 @@ function isPrepped(ns, target) {
 
 /**
  * Prepare the target server by growing to ~max money and weakening to ~min security,
- * using grow.js and weaken.js on the given host.
+ * using grow.js and weaken.js on the purchased servers.
  */
-async function prepServer(ns, target, host, growRam, weakRam) {
+async function prepServer(ns, target, servers, growRam, weakRam) {
     const minSec = ns.getServerMinSecurityLevel(target);
     const maxMoney = ns.getServerMaxMoney(target);
 
@@ -80,9 +89,8 @@ async function prepServer(ns, target, host, growRam, weakRam) {
 
         if (sec <= minSec + 0.1 && money >= maxMoney * 0.95) break;
 
-        const maxRam = ns.getServerMaxRam(host);
-        const usedRam = ns.getServerUsedRam(host);
-        let freeRam = Math.max(0, maxRam - usedRam - 2); // keep a tiny buffer
+        const serverState = getServerStates(ns, servers);
+        let freeRam = serverState.reduce((sum, s) => sum + s.free, 0);
 
         let weakenThreads = 0;
         let growThreads = 0;
@@ -105,11 +113,12 @@ async function prepServer(ns, target, host, growRam, weakRam) {
             continue;
         }
 
+        const stateForLaunch = getServerStates(ns, servers);
         if (weakenThreads > 0) {
-            ns.exec("weaken.js", host, weakenThreads, target, 0, "prepW");
+            launchAcrossServers(ns, stateForLaunch, "weaken.js", weakRam, weakenThreads, target, 0, "prepW");
         }
         if (growThreads > 0) {
-            ns.exec("grow.js", host, growThreads, target, 0, "prepG");
+            launchAcrossServers(ns, stateForLaunch, "grow.js", growRam, growThreads, target, 0, "prepG");
         }
 
         const waitTime = Math.max(
@@ -125,13 +134,11 @@ async function prepServer(ns, target, host, growRam, weakRam) {
 
 /**
  * Decide how many threads of H / G / W1 / W2 to use,
- * constrained by available RAM and desired hack fraction.
+ * constrained by available RAM across purchased servers and desired hack fraction.
  */
-function computeBatchThreads(ns, target, desiredHackFraction, host,
+function computeBatchThreads(ns, target, desiredHackFraction, serverState,
                              hackRam, growRam, weakRam) {
-    const maxRam = ns.getServerMaxRam(host);
-    const usedRam = ns.getServerUsedRam(host);
-    const freeRam = Math.max(0, maxRam - usedRam - 2);
+    const freeRam = serverState.reduce((sum, s) => sum + s.free, 0);
 
     if (freeRam < hackRam + growRam + 2 * weakRam) {
         return null; // Can't even run 1 thread of each
@@ -198,8 +205,8 @@ function computeBatchThreads(ns, target, desiredHackFraction, host,
  *   Hack → Weaken1 → Grow → Weaken2
  * with 'batchSpacing' ms between each.
  */
-async function scheduleSingleBatch(ns, target, host, batchId, cfg,
-                                   batchSpacing, safetyGap) {
+async function scheduleSingleBatch(ns, target, servers, batchId, cfg,
+                                   batchSpacing, safetyGap, hackRam, growRam, weakRam) {
     const tHack = ns.getHackTime(target);
     const tGrow = ns.getGrowTime(target);
     const tWeaken = ns.getWeakenTime(target);
@@ -219,39 +226,64 @@ async function scheduleSingleBatch(ns, target, host, batchId, cfg,
 
     ns.print(`Launching batch ${batchId} on ${target} in HWGW finish order.`);
 
-    const pids = [];
+    const state = getServerStates(ns, servers);
 
-    // The order we exec() doesn't matter; the delays control finish order.
-    if (cfg.w1Threads > 0) {
-        const pid = ns.exec("weaken.js", host, cfg.w1Threads,
-                            target, w1Delay, batchId, "W1");
-        if (pid === 0) return false;
-        pids.push(pid);
-    }
+    const steps = [
+        { threads: cfg.w1Threads, script: "weaken.js", delay: w1Delay, label: "W1", ram: weakRam },
+        { threads: cfg.w2Threads, script: "weaken.js", delay: w2Delay, label: "W2", ram: weakRam },
+        { threads: cfg.growThreads, script: "grow.js", delay: growDelay, label: "G", ram: growRam },
+        { threads: cfg.hackThreads, script: "hack.js", delay: hackDelay, label: "H", ram: hackRam },
+    ];
 
-    if (cfg.w2Threads > 0) {
-        const pid = ns.exec("weaken.js", host, cfg.w2Threads,
-                            target, w2Delay, batchId, "W2");
-        if (pid === 0) return false;
-        pids.push(pid);
-    }
-
-    if (cfg.growThreads > 0) {
-        const pid = ns.exec("grow.js", host, cfg.growThreads,
-                            target, growDelay, batchId, "G");
-        if (pid === 0) return false;
-        pids.push(pid);
-    }
-
-    if (cfg.hackThreads > 0) {
-        const pid = ns.exec("hack.js", host, cfg.hackThreads,
-                            target, hackDelay, batchId, "H");
-        if (pid === 0) return false;
-        pids.push(pid);
+    for (const step of steps) {
+        if (step.threads === 0) continue;
+        const ok = launchAcrossServers(ns, state, step.script, step.ram,
+                                       step.threads, target, step.delay, batchId, step.label);
+        if (!ok) return false;
     }
 
     const totalDuration = (w2End - now) + safetyGap;
     await ns.sleep(totalDuration);
 
     return true;
+}
+
+function getServerStates(ns, servers) {
+    return servers.map((name) => {
+        const maxRam = ns.getServerMaxRam(name);
+        const usedRam = ns.getServerUsedRam(name);
+        const free = Math.max(0, maxRam - usedRam - 2); // leave a small buffer
+        return { name, free };
+    }).filter((s) => s.free > 0);
+}
+
+function launchAcrossServers(ns, serverState, script, scriptRam, threads, ...args) {
+    let remaining = threads;
+    serverState.sort((a, b) => b.free - a.free);
+
+    for (const server of serverState) {
+        const capacity = Math.floor(server.free / scriptRam);
+        if (capacity <= 0) continue;
+
+        const use = Math.min(remaining, capacity);
+        const pid = ns.exec(script, server.name, use, ...args);
+        if (pid === 0) {
+            return false;
+        }
+        server.free -= use * scriptRam;
+        remaining -= use;
+
+        if (remaining <= 0) break;
+    }
+
+    return remaining === 0;
+}
+
+async function ensureWorkersOnPurchased(ns, servers, sourceHost, files) {
+    for (const server of servers) {
+        const missing = files.some((file) => !ns.fileExists(file, server));
+        if (missing) {
+            await ns.scp(files, server, sourceHost);
+        }
+    }
 }
