@@ -13,6 +13,7 @@ This repository now centers around a lightweight HWGW automation stack designed 
 - `mcp.js` — Master launcher that scans the network, auto-roots with any port crackers you own, picks a profitable target (`maxMoney * hackChance / hackTime`), kills older hacking scripts, and starts the batcher on `home`. It also has hooks to start your other scripts (Hacknet, purchased servers, etc.).
 - `batcher.js` — Stable single-target HWGW batch controller. It preps the target, computes thread counts based on desired steal fraction and the combined free RAM of all purchased servers, schedules one batch at a time with finish order Hack → Weaken → Grow → Weaken, and keeps running indefinitely with automatic re-prep. Worker processes never run on the host that launches the batcher, and the RAM buffer scales down on tiny purchased servers so they still contribute threads.
 - `hack.js`, `grow.js`, `weaken.js` — Minimal one-shot workers (sleep → action → log) used by the batcher. Keep them on `home`; the batcher copies them to your purchased servers automatically.
+- `pserv-launcher.js` — Copies the worker scripts to every purchased server, starts a simple hack manager on `pserv-0` that fires 5-thread hacks every 10 seconds against rooted servers sitting at ≥90% money and near-min security, and runs support helpers on other purchased servers to push up the five lowest-money targets with up to 10 threads of weaken/grow each.
 
 ## Other included utilities
 - `hello.js`, `helloworld.js` — Small greeting scripts for connectivity tests.
