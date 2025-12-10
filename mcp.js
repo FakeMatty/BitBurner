@@ -1,166 +1,72 @@
-/** @param {NS} ns **/
+/** @param {NS} ns */
+import { getAllRootedServers, selectBestTarget, getRootAccess, scanNetwork } from './utils.js';
+
 export async function main(ns) {
-    ns.disableLog("ALL");
+    ns.disableLog('ALL');
+    ns.tail();
 
-    const BATCHER = "batcher.js";
-    const HACK = "hack.js";
-    const GROW = "grow.js";
-    const WEAK = "weaken.js";
+    const stealPercent = ns.args[0] || 0.10;
 
-    const desiredHackFraction = ns.args[0] ?? 0.1; // 10% default
+    ns.print('=== Master Control Program Started ===');
+    ns.print(`Steal percent: ${(stealPercent * 100).toFixed(1)}%`);
 
-    // 1) Find all servers
-    const allServers = scanAllServers(ns, "home");
+    // Step 1: Root all servers
+    ns.print('\n--- Phase 1: Rooting Servers ---');
+    const allServers = scanNetwork(ns);
+    let rootedCount = 0;
 
-    // 2) Auto-root everything we reasonably can
-    const rooted = autoRootAll(ns, allServers);
-
-    // 3) Pick best target
-    const target = pickBestTarget(ns, rooted);
-    if (!target) {
-        ns.tprint("MCP: No suitable target found.");
-        return;
-    }
-
-    ns.tprint(`MCP: Best target is ${target}`);
-
-    // 4) Kill current hacking/batching scripts (optional)
-    killExisting(ns, ["batcher.js", HACK, GROW, WEAK]);
-
-    // 5) Start the batcher on home
-    if (!ns.fileExists(BATCHER, "home")) {
-        ns.tprint(`MCP: Missing ${BATCHER} on home.`);
-        return;
-    }
-
-    ns.tprint(`MCP: Starting ${BATCHER} on home against ${target}`);
-    ns.run(BATCHER, 1, target, desiredHackFraction);
-
-    // 6) Start *your* other automation scripts here.
-    // Fill in with real names of your scripts.
-    const extraScripts = [
-        // ["hacknet-manager.js", []],
-        // ["purchase-servers.js", []],
-        // ["faction-worker.js", []],
-    ];
-
-    for (const [script, args] of extraScripts) {
-        if (ns.fileExists(script, "home") && !ns.isRunning(script, "home", ...args)) {
-            ns.run(script, 1, ...args);
-            ns.print(`MCP: Started ${script} ${JSON.stringify(args)}`);
-        }
-    }
-
-    ns.tprint("MCP: Launch complete.");
-}
-
-/**
- * Depth-first search to list all servers reachable from 'start'.
- */
-function scanAllServers(ns, start = "home") {
-    const seen = new Set([start]);
-    const stack = [start];
-    const result = [start];
-
-    while (stack.length > 0) {
-        const host = stack.pop();
-        for (const neighbor of ns.scan(host)) {
-            if (!seen.has(neighbor)) {
-                seen.add(neighbor);
-                result.push(neighbor);
-                stack.push(neighbor);
+    for (const server of allServers) {
+        if (server === 'home') continue;
+        if (!ns.hasRootAccess(server)) {
+            if (getRootAccess(ns, server)) {
+                rootedCount++;
+                ns.print(`Rooted: ${server}`);
             }
         }
     }
-    return result;
-}
 
-/**
- * Automatically run port-opening programs and NUKE servers where possible.
- */
-function autoRootAll(ns, servers) {
-    const rooted = [];
-    const home = "home";
+    ns.print(`Total rooted servers: ${rootedCount}`);
 
-    const programs = [
-        ["BruteSSH.exe", (host) => ns.brutessh(host)],
-        ["FTPCrack.exe", (host) => ns.ftpcrack(host)],
-        ["relaySMTP.exe", (host) => ns.relaysmtp(host)],
-        ["HTTPWorm.exe", (host) => ns.httpworm(host)],
-        ["SQLInject.exe", (host) => ns.sqlinject(host)],
-    ];
+    // Step 2: Select best target
+    ns.print('\n--- Phase 2: Target Selection ---');
+    const target = selectBestTarget(ns);
+    ns.print(`Best target selected: ${target}`);
+    ns.print(`  Max money: $${ns.formatNumber(ns.getServerMaxMoney(target))}`);
+    ns.print(`  Min security: ${ns.getServerMinSecurityLevel(target)}`);
+    ns.print(`  Required hack level: ${ns.getServerRequiredHackingLevel(target)}`);
+    ns.print(`  Hack chance: ${(ns.hackAnalyzeChance(target) * 100).toFixed(1)}%`);
 
-    const availableOpeners = programs.filter(([file]) => ns.fileExists(file, home)).length;
-
-    for (const host of servers) {
-        if (host === home || host === "darkweb") continue;
-
-        try {
-            if (!ns.hasRootAccess(host)) {
-                const requiredPorts = ns.getServerNumPortsRequired(host);
-                if (requiredPorts <= availableOpeners) {
-                    for (const [file, fn] of programs) {
-                        if (ns.fileExists(file, home)) {
-                            fn(host);
-                        }
-                    }
-                    ns.nuke(host);
-                }
-            }
-            if (ns.hasRootAccess(host)) {
-                rooted.push(host);
-            }
-        } catch (e) {
-            ns.print(`autoRootAll: error on ${host}: ${String(e)}`);
-        }
-    }
-
-    return rooted;
-}
-
-/**
- * Choose a target that you can hack & is likely to be profitable.
- * Scoring: (maxMoney * hackChance) / hackTime
- */
-function pickBestTarget(ns, servers) {
-    const player = ns.getPlayer();
-
-    let best = null;
-    let bestScore = 0;
-
-    for (const host of servers) {
-        if (host === "home" || host === "darkweb") continue;
-
-        const maxMoney = ns.getServerMaxMoney(host);
-        if (maxMoney <= 0) continue;
-
-        const reqLevel = ns.getServerRequiredHackingLevel(host);
-        if (reqLevel > player.hacking) continue;
-
-        const chance = ns.hackAnalyzeChance(host);
-        if (chance < 0.1) continue; // skip horrible chance targets
-
-        const time = ns.getHackTime(host);
-        const score = (maxMoney * chance) / time;
-
-        if (score > bestScore) {
-            bestScore = score;
-            best = host;
-        }
-    }
-
-    return best;
-}
-
-/**
- * Kill existing hacking-related scripts so MCP has a clean slate.
- */
-function killExisting(ns, names) {
-    for (const server of scanAllServers(ns)) {
-        for (const script of names) {
+    // Step 3: Kill old scripts
+    ns.print('\n--- Phase 3: Cleaning Up Old Scripts ---');
+    const scripts = ['hack.js', 'grow.js', 'weaken.js', 'batcher.js'];
+    for (const server of allServers) {
+        for (const script of scripts) {
             if (ns.scriptRunning(script, server)) {
-                ns.kill(script, server);
+                ns.scriptKill(script, server);
             }
         }
+    }
+    ns.print('Old scripts killed');
+
+    // Step 4: Launch batcher
+    ns.print('\n--- Phase 4: Launching Batcher ---');
+
+    const batcherRam = ns.getScriptRam('batcher.js');
+    const homeRam = ns.getServerMaxRam('home') - ns.getServerUsedRam('home');
+
+    if (homeRam < batcherRam) {
+        ns.print('ERROR: Not enough RAM on home to run batcher!');
+        return;
+    }
+
+    const pid = ns.run('batcher.js', 1, stealPercent, target);
+
+    if (pid > 0) {
+        ns.print(`Batcher launched successfully (PID: ${pid})`);
+        ns.print('\n=== MCP Complete - Batcher is now running ===');
+        ns.print(`Monitor the batcher output for batch statistics`);
+        ns.print(`Your network is now optimized for maximum profit!`);
+    } else {
+        ns.print('ERROR: Failed to launch batcher');
     }
 }
