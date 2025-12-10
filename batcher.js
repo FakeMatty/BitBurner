@@ -101,7 +101,7 @@ async function launchBatch(ns, target, stealPercent, batchId) {
     const moneyAfterHack = ns.getServerMaxMoney(target) * (1 - stealPercent);
     const growthNeeded = ns.getServerMaxMoney(target) / moneyAfterHack;
     const growThreads = Math.ceil(ns.growthAnalyze(target, growthNeeded));
-    const growSecIncrease = ns.growthAnalyzeSecurity(growThreads, target);
+    const growSecIncrease = growThreads * 0.004; // Each grow thread adds 0.004 security
     const weaken2Threads = Math.ceil(growSecIncrease / 0.05);
 
     const totalThreads = hackThreads + weaken1Threads + growThreads + weaken2Threads;
