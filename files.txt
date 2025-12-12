@@ -1,3 +1,5 @@
+train-hacking.js
+train-max.js
 hack.js
 grow.js
 weaken.js
