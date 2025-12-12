@@ -1,6 +1,6 @@
 train-hacking.js
 train-max.js
-
+faction-manager.js
 grow.js
 weaken.js
 utils.js
