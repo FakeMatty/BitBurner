@@ -7,3 +7,4 @@ mcp.js
 monitor.js
 pserv-manager.js
 train-hacking.js
+train-max.js
