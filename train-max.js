@@ -65,7 +65,7 @@ export async function main(ns) {
             const threads = Math.floor(usableRam / scriptRam);
 
             if (threads > 0) {
-                ns.exec(workerScript, server, threads, target, Date.now());
+                ns.exec(workerScript, server, threads, target);
                 totalThreads += threads;
                 totalRamUsed += threads * scriptRam;
             }
